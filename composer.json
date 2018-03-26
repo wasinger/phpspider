@@ -1,0 +1,20 @@
+{
+    "name": "wa72/spider",
+    "require": {
+        "guzzlehttp/guzzle": "^6",
+        "symfony/event-dispatcher": "^2.7|^3|^4",
+        "symfony/dom-crawler": "^2.7|^3|^4",
+        "symfony/css-selector": "^2.7|^3|^4"
+    },
+    "autoload":{
+        "psr-4":{
+            "Wa72\\Spider\\":"./"
+        }
+    },
+    "authors": [
+        {
+            "name": "Christoph Singer",
+            "email": "singer@webagentur72.de"
+        }
+    ]
+}
