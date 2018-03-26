@@ -1,6 +1,9 @@
 {
     "name": "wa72/spider",
+    "type":"library",
+    "license":"MIT",
     "require": {
+        "php":">=5.6.0",
         "guzzlehttp/guzzle": "^6",
         "symfony/event-dispatcher": "^2.7|^3|^4",
         "symfony/dom-crawler": "^2.7|^3|^4",
