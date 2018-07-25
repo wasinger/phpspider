@@ -95,6 +95,8 @@ abstract class AbstractSpiderApplication
     }
 
     /**
+     * Urls matched by this filter will not be fetched.
+     *
      * @return UrlFilter
      */
     public function getUrlfilterFetch()
@@ -116,6 +118,8 @@ abstract class AbstractSpiderApplication
     }
 
     /**
+     * Urls matched by this filter will be fetched but not crawled for more links.
+     *
      * @return UrlFilter
      */
     public function getUrlfilterLinkextract()
@@ -154,6 +158,15 @@ abstract class AbstractSpiderApplication
         return $this;
     }
 
+    public function getReferingPages($url)
+    {
+        if (!empty($this->referer[$url])) {
+            return array_keys($this->referer[$url]);
+        } else {
+            return [];
+        }
+    }
+
     public function handleExceptionEvent(SpiderExceptionEvent $event)
     {
         if ($this->logger) {
@@ -162,10 +175,7 @@ abstract class AbstractSpiderApplication
 
             if ($e instanceof ClientException) { // 4xx Error codes
                 $response = $e->getResponse();
-                $refering_pages = [];
-                if (!empty($this->referer[$url])) {
-                    $refering_pages = array_keys($this->referer[$url]);
-                }
+                $refering_pages = $this->getReferingPages($url);
 
                 $this->logger->error(sprintf('Error %s on URL %s. Refering pages: %s', $response->getStatusCode(), $url, join(', ', $refering_pages)));
             } else {
