@@ -186,19 +186,14 @@ class Spider
     public function run($start_url, $options = [])
     {
         $options = \array_replace([
-            'concurrent_requests' => 1
+            'concurrent_requests' => 1,
+            'method' => 'get'
         ], $options);
 
         $this->starturl = psr7\uri_for($start_url);
 
         if (!($this->client instanceof Client)) {
             $this->client = new Client();
-        }
-
-        if ($options['concurrent_requests'] > 1) {
-            // async: we need a handle for CurlMultiHandler
-            $curl = new CurlMultiHandler();
-            $this->client->getConfig('handler')->setHandler($curl);
         }
 
         if (!($this->dispatcher instanceof EventDispatcher)) $this->dispatcher = new EventDispatcher();
@@ -268,8 +263,7 @@ class Spider
                         $this->logger->debug('Requests settled, continue adding more requests.');
                     }
                 }
-
-                $promise = $this->client->getAsync($url, [
+                $promise = $this->client->requestAsync($options['method'], $url, [
                     'allow_redirects' => false
                 ]);
                 if ($this->logger) {
@@ -305,7 +299,7 @@ class Spider
         } else { // synchronous calls
             while ($url = $this->urlqueue->next()) {
                 try {
-                    $response = $this->client->get($url, [
+                    $response = $this->client->request($options['method'], $url, [
                         'allow_redirects' => false
                     ]);
                     $code = $response->getStatusCode();
