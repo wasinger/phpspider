@@ -22,9 +22,14 @@ abstract class AbstractSpiderApplication
     protected $spider;
 
     /**
-     * @var array
+     * @var array holds refering pages for each found url
      */
     protected $referer = [];
+
+    /**
+     * @var array holds linked text for each found url
+     */
+    protected $linktexts = [];
 
     /**
      * @var UrlFilter Urls filtered out by this filter will not be fetched.
@@ -158,10 +163,31 @@ abstract class AbstractSpiderApplication
         return $this;
     }
 
+    /**
+     * Get URLs of documents where a link to $url is found
+     *
+     * @param string $url
+     * @return array of urls
+     */
     public function getReferingPages($url)
     {
         if (!empty($this->referer[$url])) {
             return array_keys($this->referer[$url]);
+        } else {
+            return [];
+        }
+    }
+
+    /**
+     * Get link texts for $url from refering pages
+     *
+     * @param string $url
+     * @return array of text strings
+     */
+    public function getLinktexts($url)
+    {
+        if (!empty($this->linktexts[$url])) {
+            return $this->linktexts[$url];
         } else {
             return [];
         }
@@ -232,7 +258,7 @@ abstract class AbstractSpiderApplication
                         }
                         foreach ($links as $link) {
                             $url = $link->getAttribute('href');
-                            $this->handleFoundUrl($url, $request_url, $response);
+                            $this->handleFoundUrl($url, $request_url, $response, $link->textContent);
                         }
                     }
 
@@ -275,7 +301,7 @@ abstract class AbstractSpiderApplication
      * @param ResponseInterface $response Reponse where the url was found
      * @return string The (possibly transformed) url
      */
-    protected function handleFoundUrl($url, $refering_url, &$response)
+    protected function handleFoundUrl($url, $refering_url, &$response, $linktext = '')
     {
         $url = trim($url);
         if ($url && $url != $refering_url) {
@@ -304,10 +330,18 @@ abstract class AbstractSpiderApplication
             ) {
                 if ($this->logger) $this->logger->debug('URL will be added to spider: ' . $urlo);
 
+                // add to referers array
                 if (!isset($this->referer[(string) $urlo])) {
                     $this->referer[(string) $urlo] = [];
                 }
                 $this->referer[(string) $urlo][$refering_url] = $url;
+                if ($linktext) {
+                    // add to linktexts array
+                    if (!isset($this->linktexts[(string)$urlo])) {
+                        $this->linktexts[(string)$urlo] = [];
+                    }
+                    $this->linktexts[(string)$urlo][] = $linktext;
+                }
                 try {
                     $this->spider->addUrl($urlo);
                 } catch (\Exception $e) {
