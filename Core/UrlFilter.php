@@ -10,9 +10,9 @@ use Psr\Http\Message\UriInterface;
 class UrlFilter
 {
     private $reject_paths = [];
-
+    private $reject_params = [];
     private $allowed_hosts = [];
-
+    private $filterfunctions = [];
     private $allowed_schemes = ['http', 'https'];
 
     /**
@@ -22,6 +22,16 @@ class UrlFilter
     public function rejectPathByRegex($regex)
     {
         $this->reject_paths[] = $regex;
+        return $this;
+    }
+
+    /**
+     * @param array $filter key => value array of query parameters that should be rejected
+     * @return UrlFilter
+     */
+    public function rejectByQueryparam(array $reject_params)
+    {
+        $this->reject_params = array_merge($this->reject_params, $reject_params);
         return $this;
     }
 
@@ -46,6 +56,19 @@ class UrlFilter
     }
 
     /**
+     * Set custom filter function.
+     * Pass a callable that accepts UriInterface as paramter and returns true or false.
+     *
+     * @param callable $func
+     * @return $this
+     */
+    public function addFilterFunction(callable $func)
+    {
+        $this->filterfunctions[] = $func;
+        return $this;
+    }
+
+    /**
      * @param $url
      * @return boolean
      */
@@ -54,12 +77,12 @@ class UrlFilter
         if (!($url instanceof UriInterface)) {
             $url = Psr7\uri_for($url);
         }
-        return $this->filterScheme($url) && $this->filterHost($url) && $this->filterPath($url);
+        return $this->filterScheme($url) && $this->filterHost($url) && $this->filterPath($url) && $this->filterQuery($url) && $this->filterByCustomFunction($url);
     }
 
     private function filterHost(UriInterface $url)
     {
-        // if not host filter is set allow all hosts
+        // if no host filter is set allow all hosts
         if (empty($this->allowed_hosts)) {
             return true;
         }
@@ -85,6 +108,35 @@ class UrlFilter
     {
         foreach ($this->reject_paths as $regex) {
             if (preg_match($regex, $url->getPath())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function filterQuery(UriInterface $url)
+    {
+        parse_str($url->getQuery(), $urlparams);
+        foreach ($this->reject_params as $param => $value) {
+            if (!empty($urlparams[$param])) {
+                if (is_array($urlparams[$param]) && !is_array($value)) {
+                    if (in_array($value, $urlparams[$param])) {
+                        return false;
+                    }
+                } else {
+                    if ($urlparams[$param] == $value) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private function filterByCustomFunction(UriInterface $url)
+    {
+        foreach ($this->filterfunctions as $func) {
+            if (false === \call_user_func($func, $url)) {
                 return false;
             }
         }
