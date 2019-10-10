@@ -234,6 +234,9 @@ abstract class AbstractSpiderApplication
      */
     protected function findUrls($request_url, $content_type, ResponseInterface $response, $options = [])
     {
+        if ($this->logger) {
+            $this->logger->debug('Suche nach weiteren Links.');
+        }
         $options = \array_replace([
             'extract_href' => true,
             'extract_src' => false,
@@ -241,10 +244,9 @@ abstract class AbstractSpiderApplication
         ], $options);
 
         if ($this->getUrlfilterLinkextract()->filter($request_url)) {
-
             if ($content_type == 'text/html') {
                 if ($this->logger) {
-                    $this->logger->debug('Suche nach weiteren Links...');
+                    $this->logger->debug('HTML-Dokument: Suche nach weiteren Links...');
                 }
                 $hp = new Crawler((string)$response->getBody());
 
@@ -289,6 +291,10 @@ abstract class AbstractSpiderApplication
                     }
                 }
             }
+        } else {
+            if ($this->logger) {
+                $this->logger->debug('UrlFilterLinkextract: keine Suche nach URLs in ' . $request_url);
+            }
         }
     }
 
@@ -326,28 +332,33 @@ abstract class AbstractSpiderApplication
             if (
                 !(Psr7\Uri::isSameDocumentReference($urlo, $referer_urlo))
                 && !(Psr7\UriNormalizer::isEquivalent($urlo, $referer_urlo))
-                && $this->getUrlfilterFetch()->filter($urlo)
             ) {
-                if ($this->logger) $this->logger->debug('URL will be added to spider: ' . $urlo);
-
-                // add to referers array
-                if (!isset($this->referer[(string) $urlo])) {
-                    $this->referer[(string) $urlo] = [];
-                }
-                $this->referer[(string) $urlo][$refering_url] = $url;
-                if ($linktext) {
-                    // add to linktexts array
-                    if (!isset($this->linktexts[(string)$urlo])) {
-                        $this->linktexts[(string)$urlo] = [];
-                    }
-                    $this->linktexts[(string)$urlo][] = $linktext;
-                }
-                try {
-                    $this->spider->addUrl($urlo);
-                } catch (\Exception $e) {
+                if ($this->getUrlfilterFetch()->filter($urlo)) {
                     if ($this->logger) {
-                        $this->logger->warning(sprintf('URL %s could not be added to spider.', $urlo));
+                        $this->logger->debug('URL will be added to spider: ' . $urlo);
                     }
+
+                    // add to referers array
+                    if (!isset($this->referer[(string)$urlo])) {
+                        $this->referer[(string)$urlo] = [];
+                    }
+                    $this->referer[(string)$urlo][$refering_url] = $url;
+                    if ($linktext) {
+                        // add to linktexts array
+                        if (!isset($this->linktexts[(string)$urlo])) {
+                            $this->linktexts[(string)$urlo] = [];
+                        }
+                        $this->linktexts[(string)$urlo][] = $linktext;
+                    }
+                    try {
+                        $this->spider->addUrl($urlo);
+                    } catch (\Exception $e) {
+                        if ($this->logger) {
+                            $this->logger->warning(sprintf('URL %s could not be added to spider.', $urlo));
+                        }
+                    }
+                } else {
+                    if ($this->logger) $this->logger->debug('REJECTED by UrlFilter: ' . $urlo);
                 }
             }
             return (string) $urlo;
