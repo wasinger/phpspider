@@ -89,13 +89,6 @@ class Spider
 
         $url = Psr7\UriNormalizer::normalize($url);
 
-        if ($this->urlfilter && !$this->urlfilter->filter($url)) {
-            if ($this->logger) {
-                $this->logger->log('notice', sprintf('URL %s rejected by UrlFilter', $url));
-            }
-            return;
-        }
-
         $url = (string) $url;
 
         $this->urlqueue->addUrl($url, $force);
