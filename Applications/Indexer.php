@@ -3,27 +3,30 @@ namespace Wa72\Spider\Applications;
 
 
 use Psr\Http\Message\ResponseInterface;
-use Wa72\Spider\Core\AbstractSpiderApplication;
-use Wa72\Spider\Core\SpiderResponseEvent;
+use Wa72\Spider\Core\AbstractSpider;
+use Wa72\Spider\Core\HttpClientResponseEvent;
 use GuzzleHttp\Psr7;
 
 /**
  * Abstract base class for a custom web search indexer
  *
  */
-abstract class Indexer extends AbstractSpiderApplication
+abstract class Indexer extends AbstractSpider
 {
-    public function run($start_url)
+    protected $start_host;
+
+    public function crawl($start_url)
     {
         $url = Psr7\uri_for($start_url);
         // Indexer: add Host of start_url to allowed hosts
         // This limits crawling to this host.
         // You can allow more hosts by adding them via addAllowedHost() method.
-        $this->getUrlfilterFetch()->addAllowedHost($url->getHost());
-        parent::run($start_url);
+        $this->start_host = $url->getHost();
+        $this->getUrlfilterFetch()->addAllowedHost($this->start_host);
+        parent::crawl($start_url);
     }
 
-    public function handleResponseEvent(SpiderResponseEvent $event)
+    public function handleResponseEvent(HttpClientResponseEvent $event)
     {
         $response = $event->getResponse();
         $request_url = $event->getRequestUrl();

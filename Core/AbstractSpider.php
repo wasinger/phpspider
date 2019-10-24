@@ -10,21 +10,21 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- *  This is a class used as base for other classes that handle spider responses.
+ *  This class is to be used as base class for applications that spider web pages.
  */
-abstract class AbstractSpiderApplication
+abstract class AbstractSpider
 {
     use LoggerAwareTrait;
 
     /**
-     * @var Spider
+     * @var HttpClientQueue
      */
-    protected $spider;
+    protected $clientQueue;
 
     /**
      * @var array holds refering pages for each found url
      */
-    protected $referer = [];
+    protected $referers = [];
 
     /**
      * @var array holds linked text for each found url
@@ -55,48 +55,42 @@ abstract class AbstractSpiderApplication
     protected $options = [];
 
     /**
-     * @param Spider|null $spider
+     * @param HttpClientQueue $clientQueue
      * @param array $options
      */
-    public function __construct($spider = null, $options = [])
+    public function __construct(HttpClientQueue $clientQueue, $options = [])
     {
         $this->options = \array_replace([
-            'discard_fragment' => true,
-            'concurrent_requests' => 6
+            'discard_fragment' => true
         ], $options);
 
-        if (!($spider instanceof Spider)) {
-            $spider = new Spider();
-        }
-        $this->spider = $spider;
-
-        $spider->addResponseListener([$this, 'handleResponseEvent']);
-        $spider->addExceptionListener([$this, 'handleExceptionEvent']);
-        $spider->addRedirectListener([$this, 'handleRedirectEvent']);
+        $clientQueue->addResponseListener([$this, 'handleResponseEvent']);
+        $clientQueue->addExceptionListener([$this, 'handleExceptionEvent']);
+        $clientQueue->addRedirectListener([$this, 'handleRedirectEvent']);
+        $this->clientQueue = $clientQueue;
     }
 
     public function setLogger(LoggerInterface $logger)
     {
         $this->logger = $logger;
-        $this->spider->setLogger($logger);
+        $this->clientQueue->setLogger($logger);
     }
 
     /**
      * @param $start_url
      */
-    public function run($start_url)
+    public function crawl($start_url)
     {
-        $this->spider->run($start_url, [
-            'concurrent_requests' => $this->options['concurrent_requests']
-        ]);
+        $this->clientQueue->addUrl($start_url);
+        $this->clientQueue->start();
     }
 
     /**
-     * @return Spider
+     * @return HttpClientQueue
      */
-    public function getSpider()
+    public function getClientQueue()
     {
-        return $this->spider;
+        return $this->clientQueue;
     }
 
     /**
@@ -114,7 +108,7 @@ abstract class AbstractSpiderApplication
 
     /**
      * @param UrlFilter $urlfilter_fetch
-     * @return AbstractSpiderApplication
+     * @return AbstractSpider
      */
     public function setUrlfilterFetch($urlfilter_fetch)
     {
@@ -137,7 +131,7 @@ abstract class AbstractSpiderApplication
 
     /**
      * @param UrlFilter $urlfilter_linkextract
-     * @return AbstractSpiderApplication
+     * @return AbstractSpider
      */
     public function setUrlfilterLinkextract($urlfilter_linkextract)
     {
@@ -155,7 +149,7 @@ abstract class AbstractSpiderApplication
 
     /**
      * @param array $options
-     * @return AbstractSpiderApplication
+     * @return AbstractSpider
      */
     public function setOptions($options)
     {
@@ -171,8 +165,8 @@ abstract class AbstractSpiderApplication
      */
     public function getReferingPages($url)
     {
-        if (!empty($this->referer[$url])) {
-            return array_keys($this->referer[$url]);
+        if (!empty($this->referers[$url])) {
+            return array_keys($this->referers[$url]);
         } else {
             return [];
         }
@@ -193,7 +187,7 @@ abstract class AbstractSpiderApplication
         }
     }
 
-    public function handleExceptionEvent(SpiderExceptionEvent $event)
+    public function handleExceptionEvent(HttpClientExceptionEvent $event)
     {
         if ($this->logger) {
             $e = $event->getException();
@@ -210,7 +204,7 @@ abstract class AbstractSpiderApplication
         }
     }
 
-    public function handleRedirectEvent(SpiderRedirectEvent $e)
+    public function handleRedirectEvent(HttpClientRedirectEvent $e)
     {
         $response = $e->getResponse();
         $this->handleFoundUrl($e->getRedirectUrl(), $e->getRequestUrl(), $response);
@@ -221,10 +215,10 @@ abstract class AbstractSpiderApplication
      *
      * E.g., use $this->findUrls() to find more URLs in the response content (if it is an HTML document)
      *
-     * @param SpiderResponseEvent $event
+     * @param HttpClientResponseEvent $event
      * @return mixed
      */
-    abstract function handleResponseEvent(SpiderResponseEvent $event);
+    abstract function handleResponseEvent(HttpClientResponseEvent $event);
 
     /**
      * @param string $request_url
@@ -234,9 +228,6 @@ abstract class AbstractSpiderApplication
      */
     protected function findUrls($request_url, $content_type, ResponseInterface $response, $options = [])
     {
-        if ($this->logger) {
-            $this->logger->debug('Suche nach weiteren Links.');
-        }
         $options = \array_replace([
             'extract_href' => true,
             'extract_src' => false,
@@ -246,7 +237,7 @@ abstract class AbstractSpiderApplication
         if ($this->getUrlfilterLinkextract()->filter($request_url)) {
             if ($content_type == 'text/html') {
                 if ($this->logger) {
-                    $this->logger->debug('HTML-Dokument: Suche nach weiteren Links...');
+                    $this->logger->debug('HTML document: Looking for more links...');
                 }
                 $hp = new Crawler((string)$response->getBody());
 
@@ -256,7 +247,7 @@ abstract class AbstractSpiderApplication
                         // Extrahiere HREF-Attribute
                         $links = $hp->filter('[href]');
                         if ($this->logger) {
-                            $this->logger->debug('Anzahl gefundene HREFs: ' . count($links));
+                            $this->logger->debug('Found number of HREFs: ' . count($links));
                         }
                         foreach ($links as $link) {
                             $url = $link->getAttribute('href');
@@ -268,7 +259,7 @@ abstract class AbstractSpiderApplication
                         // Extrahiere SRC-Attribute
                         $links = $hp->filter('[src]');
                         if ($this->logger) {
-                            $this->logger->debug('Anzahl gefundene SRCs: ' . count($links));
+                            $this->logger->debug('Found number of SRCs: ' . count($links));
                         }
                         foreach ($links as $link) {
                             $url = $link->getAttribute('src');
@@ -283,7 +274,7 @@ abstract class AbstractSpiderApplication
                     $css = $response->getBody()->getContents();
                     if ($i = preg_match_all('/url\(["\']?([^)]+)["\']?\)/', $css, $matches)) {
                         if ($this->logger) {
-                            $this->logger->debug('Anzahl gefundene CSS-URLs: ' . $i);
+                            $this->logger->debug('Found CSS urls: ' . $i);
                         }
                         foreach ($matches[1] as $url) {
                             $this->handleFoundUrl($url, $request_url, $response);
@@ -293,14 +284,16 @@ abstract class AbstractSpiderApplication
             }
         } else {
             if ($this->logger) {
-                $this->logger->debug('UrlFilterLinkextract: keine Suche nach URLs in ' . $request_url);
+                $this->logger->debug('UrlFilterLinkextract: not looking for more links in ' . $request_url);
             }
         }
     }
 
     /**
-     * Do something with a URL found in a reponse.
-     * (In most cases, add it to spider via $this->spider->addUrl() if it matches some criteria)
+     * Do something with a URL found in a reponse content.
+     * (In most cases, add it to the queue of the urls to fetch via $this->clientQueue->addUrl() if it matches some criteria)
+     *
+     * For URLs rejected by UrlFilterFetch the method handleRejectedUrl() will be called
      *
      * @param string $url
      * @param string $refering_url
@@ -339,10 +332,10 @@ abstract class AbstractSpiderApplication
                     }
 
                     // add to referers array
-                    if (!isset($this->referer[(string)$urlo])) {
-                        $this->referer[(string)$urlo] = [];
+                    if (!isset($this->referers[(string)$urlo])) {
+                        $this->referers[(string)$urlo] = [];
                     }
-                    $this->referer[(string)$urlo][$refering_url] = $url;
+                    $this->referers[(string)$urlo][$refering_url] = $url;
                     if ($linktext) {
                         // add to linktexts array
                         if (!isset($this->linktexts[(string)$urlo])) {
@@ -351,19 +344,30 @@ abstract class AbstractSpiderApplication
                         $this->linktexts[(string)$urlo][] = $linktext;
                     }
                     try {
-                        $this->spider->addUrl($urlo);
+                        $this->clientQueue->addUrl($urlo);
                     } catch (\Exception $e) {
                         if ($this->logger) {
                             $this->logger->warning(sprintf('URL %s could not be added to spider.', $urlo));
                         }
                     }
                 } else {
-                    if ($this->logger) $this->logger->debug('REJECTED by UrlFilter: ' . $urlo);
+                    $this->handleRejectedUrl($urlo, $refering_url, $response, $linktext);
                 }
             }
             return (string) $urlo;
         }
         return $url;
+    }
+
+    /**
+     * @param UriInterface $url
+     * @param $refering_url
+     * @param $response
+     * @param string $linktext
+     */
+    protected function handleRejectedUrl(UriInterface $url, $refering_url, &$response, $linktext = '')
+    {
+        if ($this->logger) $this->logger->debug('REJECTED by UrlFilter: ' . $url);
     }
 
     /**

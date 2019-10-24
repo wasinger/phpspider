@@ -3,12 +3,9 @@ namespace Wa72\Spider\Core;
 
 use GuzzleHttp\Exception\RequestException;
 use Psr\Http\Message\ResponseInterface;
-use Symfony\Component\EventDispatcher\Event;
 
-class SpiderExceptionEvent extends Event
+class HttpClientExceptionEvent
 {
-    const NAME = 'wa72.spider.exception';
-
     /**
      * @var string
      */

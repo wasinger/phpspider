@@ -3,37 +3,38 @@ namespace Wa72\Spider\Applications;
 
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7;
-use Wa72\Spider\Core\AbstractSpiderApplication;
-use Wa72\Spider\Core\Spider;
-use Wa72\Spider\Core\SpiderResponseEvent;
+use Wa72\Spider\Core\AbstractSpider;
+use Wa72\Spider\Core\HttpClientQueue;
+use Wa72\Spider\Core\HttpClientResponseEvent;
 
 /**
  * Mirror a web site to a specified directory
  *
  */
-class Webmirror extends AbstractSpiderApplication
+class Webmirror extends AbstractSpider
 {
     private $output_dir;
 
     /**
      * @param string $output_dir
-     * @param \Wa72\Spider\Core\Spider $spider
+     * @param \Wa72\Spider\Core\HttpClientQueue $clientQueue
      */
-    public function __construct($output_dir, $spider = null)
+    public function __construct($output_dir, $clientQueue = null)
     {
-        parent::__construct($spider);
+        parent::__construct($clientQueue);
         $this->output_dir = $output_dir;
     }
 
-    public function run($start_url)
+    public function crawl($start_url)
     {
         $url = Psr7\uri_for($start_url);
         // Webmirror: stay on one host
         $this->getUrlfilterFetch()->addAllowedHost($url->getHost());
-        $this->spider->run($start_url);
+        $this->clientQueue->addUrl($start_url);
+        $this->clientQueue->start();
     }
 
-    public function handleResponseEvent(SpiderResponseEvent $event)
+    public function handleResponseEvent(HttpClientResponseEvent $event)
     {
         $response = $event->getResponse();
         $request_url = $event->getRequestUrl();

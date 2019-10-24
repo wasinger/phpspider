@@ -2,12 +2,9 @@
 namespace Wa72\Spider\Core;
 
 use Psr\Http\Message\ResponseInterface;
-use Symfony\Component\EventDispatcher\Event;
 
-class SpiderResponseEvent extends Event
+class HttpClientResponseEvent
 {
-    const NAME = 'wa72.spider.response';
-
     /**
      * @var string
      */

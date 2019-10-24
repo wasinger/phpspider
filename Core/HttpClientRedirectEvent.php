@@ -2,12 +2,9 @@
 namespace Wa72\Spider\Core;
 
 use Psr\Http\Message\ResponseInterface;
-use Symfony\Component\EventDispatcher\Event;
 
-class SpiderRedirectEvent extends Event
+class HttpClientRedirectEvent
 {
-    const NAME = 'wa72.spider.redirect';
-
     /**
      * @var string
      */
