@@ -341,7 +341,7 @@ abstract class AbstractSpider
                         if (!isset($this->linktexts[(string)$urlo])) {
                             $this->linktexts[(string)$urlo] = [];
                         }
-                        $this->linktexts[(string)$urlo][] = $linktext;
+                        $this->linktexts[(string)$urlo][$refering_url] = $linktext;
                     }
                     try {
                         $this->clientQueue->addUrl($urlo);

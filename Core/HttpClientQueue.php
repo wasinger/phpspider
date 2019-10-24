@@ -76,7 +76,12 @@ class HttpClientQueue
         $this->options = \array_replace([
             'concurrent_requests' => 1,
             'method' => 'GET',
-            'timeout' => 0
+            'timeout' => 0,
+            'headers' => [
+               'User-Agent' => 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:70.0) Gecko/20100101 Firefox/70.0',
+               'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            ],
+            'allow_redirects' => false // must always be "false" in order to dispatch HttpClientRedirectEvent!
         ], $options);
     }
 
@@ -106,7 +111,7 @@ class HttpClientQueue
         }
 
         if (!Psr7\Uri::isAbsolute($url)) {
-            throw new \InvalidArgumentException('Only absolute HTTP(S) urls are accepted by spider.');
+            throw new \InvalidArgumentException('Only absolute HTTP(S) urls are accepted by HttpClientQueue.');
         }
 
         $url = Psr7\UriNormalizer::normalize($url);
@@ -120,21 +125,21 @@ class HttpClientQueue
     }
 
     /**
-     * @param callable $listener A callable that expects one parameter of type SpiderResponseEvent
+     * @param callable $listener A callable that expects one parameter of type HttpClientResponseEvent
      */
     public function addResponseListener(callable $listener)
     {
         $this->response_listeners[] = $listener;
     }
     /**
-     * @param callable $listener A callable that expects one parameter of type SpiderRedirectEvent
+     * @param callable $listener A callable that expects one parameter of type HttpClientRedirectEvent
      */
     public function addRedirectListener(callable $listener)
     {
         $this->redirect_listeners[] = $listener;
     }
     /**
-     * @param callable $listener A callable that expects one parameter of type SpiderExceptionEvent
+     * @param callable $listener A callable that expects one parameter of type HttpClientExceptionEvent
      */
     public function addExceptionListener(callable $listener)
     {
@@ -233,8 +238,9 @@ class HttpClientQueue
                 }
             }
             $promise = $this->client->requestAsync($this->options['method'], $url, [
-                'allow_redirects' => false,
-                'timeout' => $this->options['timeout']
+                'allow_redirects' => $this->options['allow_redirects'],
+                'timeout' => $this->options['timeout'],
+                'headers' => $this->options['headers']
             ]);
             if ($this->logger) {
                 $this->logger->debug('Async request started for ' . $url);
@@ -271,8 +277,9 @@ class HttpClientQueue
         while ($url = $this->urlqueue->next()) {
             try {
                 $response = $this->client->request($this->options['method'], $url, [
-                    'allow_redirects' => false,
-                    'timeout' => $this->options['timeout']
+                    'allow_redirects' => $this->options['allow_redirects'],
+                    'timeout' => $this->options['timeout'],
+                    'headers' => $this->options['headers']
                 ]);
                 $code = $response->getStatusCode();
                 if (\in_array($code, [301, 302, 303, 307, 308])) { // Response is a redirect
