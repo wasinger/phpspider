@@ -350,26 +350,25 @@ abstract class AbstractSpider
                 !(Psr7\Uri::isSameDocumentReference($urlo, $referer_urlo))
                 && !(Psr7\UriNormalizer::isEquivalent($urlo, $referer_urlo))
             ) {
+                // remember refering url and linktext
+                if ($refering_url) {
+                    if (!isset($this->referers[(string)$urlo])) {
+                        $this->referers[(string)$urlo] = [];
+                    }
+                    $this->referers[(string)$urlo][$refering_url] = $url;
+                    if ($linktext) {
+                        // add to linktexts array
+                        if (!isset($this->linktexts[(string)$urlo])) {
+                            $this->linktexts[(string)$urlo] = [];
+                        }
+                        $this->linktexts[(string)$urlo][$refering_url] = $linktext;
+                    }
+                }
+
                 if ($this->getUrlfilterFetch()->filter($urlo)) {
                     if ($this->logger) {
                         $this->logger->debug('URL will be added to spider: ' . $urlo);
                     }
-
-                    // remember refering url and linktext
-                    if ($refering_url) {
-                        if (!isset($this->referers[(string)$urlo])) {
-                            $this->referers[(string)$urlo] = [];
-                        }
-                        $this->referers[(string)$urlo][$refering_url] = $url;
-                        if ($linktext) {
-                            // add to linktexts array
-                            if (!isset($this->linktexts[(string)$urlo])) {
-                                $this->linktexts[(string)$urlo] = [];
-                            }
-                            $this->linktexts[(string)$urlo][$refering_url] = $linktext;
-                        }
-                    }
-
                     try {
                         $this->clientQueue->addUrl($urlo);
                     } catch (\Exception $e) {
