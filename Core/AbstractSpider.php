@@ -1,6 +1,7 @@
 <?php
 namespace Wa72\Spider\Core;
 
+use Doctrine\Common\Reflection\Psr0FindFile;
 use GuzzleHttp\Exception\ClientException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\UriInterface;
@@ -206,8 +207,31 @@ abstract class AbstractSpider
 
     public function handleRedirectEvent(HttpClientRedirectEvent $e)
     {
+        $request_url = $e->getRequestUrl();
+        $redirect_url = $e->getRedirectUrl();
         $response = $e->getResponse();
-        $this->handleFoundUrl($e->getRedirectUrl(), $e->getRequestUrl(), $response);
+        
+        // make redirect url absolute
+        $redirect_uri_object = Psr7\UriNormalizer::normalize(Psr7\uri_for($redirect_url));
+        if (!Psr7\Uri::isAbsolute($redirect_uri_object)) {
+            $redirect_uri_object = psr7\UriResolver::resolve(Psr7\uri_for($request_url), $redirect_uri_object);
+            $redirect_url = (string) $redirect_uri_object;
+        }
+
+        if ($this->logger) {
+            $this->logger->info(sprintf('URL %s redirects to %s', $request_url, $redirect_url));
+        }
+
+        // update referers and linktexts to point to the redirected url
+        if (!empty($this->referers[$request_url])) {
+            $this->referers[$redirect_url] = $this->referers[$request_url];
+        }
+        if (!empty($this->linktexts[$request_url])) {
+            $this->linktexts[$redirect_url] = $this->linktexts[$request_url];
+        }
+
+        // pass the redirected url to handleFoundUrl() but without a referer
+        $this->handleFoundUrl($redirect_url, '', $response);
     }
 
     /**
@@ -331,18 +355,21 @@ abstract class AbstractSpider
                         $this->logger->debug('URL will be added to spider: ' . $urlo);
                     }
 
-                    // add to referers array
-                    if (!isset($this->referers[(string)$urlo])) {
-                        $this->referers[(string)$urlo] = [];
-                    }
-                    $this->referers[(string)$urlo][$refering_url] = $url;
-                    if ($linktext) {
-                        // add to linktexts array
-                        if (!isset($this->linktexts[(string)$urlo])) {
-                            $this->linktexts[(string)$urlo] = [];
+                    // remember refering url and linktext
+                    if ($refering_url) {
+                        if (!isset($this->referers[(string)$urlo])) {
+                            $this->referers[(string)$urlo] = [];
                         }
-                        $this->linktexts[(string)$urlo][$refering_url] = $linktext;
+                        $this->referers[(string)$urlo][$refering_url] = $url;
+                        if ($linktext) {
+                            // add to linktexts array
+                            if (!isset($this->linktexts[(string)$urlo])) {
+                                $this->linktexts[(string)$urlo] = [];
+                            }
+                            $this->linktexts[(string)$urlo][$refering_url] = $linktext;
+                        }
                     }
+
                     try {
                         $this->clientQueue->addUrl($urlo);
                     } catch (\Exception $e) {
