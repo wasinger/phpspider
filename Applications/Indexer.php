@@ -33,7 +33,7 @@ abstract class Indexer extends AbstractSpider
         // Index the received content
         $this->index($request_url, $event->getContentType(), $response);
         // Look for more URLs to spider
-        $this->findUrls($request_url, $event->getContentType(), $response);
+        $this->workOnResponse($request_url, $event->getContentType(), $response);
     }
 
     /**

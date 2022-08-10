@@ -62,6 +62,6 @@ class Linkchecker extends AbstractSpider
         $response = $event->getResponse();
         $request_url = $event->getRequestUrl();
 
-        $this->findUrls($request_url, $event->getContentType(), $response);
+        $this->workOnResponse($request_url, $event->getContentType(), $response);
     }
 }

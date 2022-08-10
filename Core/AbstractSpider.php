@@ -9,6 +9,7 @@ use Psr\Log\LoggerAwareTrait;
 use GuzzleHttp\Psr7;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DomCrawler\Crawler;
+use Wa72\HtmlPageDom\HtmlPage;
 
 /**
  *  This class is to be used as base class for applications that spider web pages.
@@ -49,6 +50,15 @@ abstract class AbstractSpider
      * @var callable[]
      */
     protected $url_normalizers = [];
+
+    /**
+     * Callables to rewrite urls when replacing them in the original document (used when mirroring websites).
+     * Must accept two parameters: bool $accepted, string|UriInterface $url
+     * Must return string|UriInterface
+     *
+     * @var callable[]
+     */
+    protected $url_rewriters = [];
 
     /**
      * @var array
@@ -237,25 +247,21 @@ abstract class AbstractSpider
     /**
      * do something with the response.
      *
-     * E.g., use $this->findUrls() to find more URLs in the response content (if it is an HTML document)
+     * E.g., use $this->workOnResponse() to find more URLs in the response content (if it is an HTML document)
      *
      * @param HttpClientResponseEvent $event
      * @return mixed
      */
     abstract function handleResponseEvent(HttpClientResponseEvent $event);
 
-    /**
-     * @param string $request_url
-     * @param string $content_type
-     * @param ResponseInterface $response
-     * @param array $options
-     */
-    protected function findUrls($request_url, $content_type, ResponseInterface $response, $options = [])
+
+    protected function workOnResponse(string $request_url, string $content_type, ResponseInterface $response, array $options = []): ResponseInterface
     {
         $options = \array_replace([
             'extract_href' => true,
             'extract_src' => false,
             'look_in_css' => false,
+            'rewrite_urls' => false
         ], $options);
 
         if ($this->getUrlfilterLinkextract()->filter($request_url)) {
@@ -263,10 +269,9 @@ abstract class AbstractSpider
                 if ($this->logger) {
                     $this->logger->debug('HTML document: Looking for more links...');
                 }
-                $hp = new Crawler((string)$response->getBody());
+                $hp = new HtmlPage((string)$response->getBody());
 
-                if ($hp && count($hp)) {
-
+                if (!empty($hp)) {
                     if ($options['extract_href']) {
                         // Extrahiere HREF-Attribute
                         $links = $hp->filter('[href]');
@@ -274,8 +279,12 @@ abstract class AbstractSpider
                             $this->logger->debug('Found number of HREFs: ' . count($links));
                         }
                         foreach ($links as $link) {
+                            /** @var \DOMElement $link */
                             $url = $link->getAttribute('href');
-                            $this->handleFoundUrl($url, $request_url, $response, $link->textContent);
+                            $res = $this->handleFoundUrl($url, $request_url, $response, $link->textContent);
+                            if ($options['rewrite_urls']) {
+                                $link->setAttribute('href', $this->rewrite_url(...$res));
+                            }
                         }
                     }
 
@@ -287,10 +296,16 @@ abstract class AbstractSpider
                         }
                         foreach ($links as $link) {
                             $url = $link->getAttribute('src');
-                            $this->handleFoundUrl($url, $request_url, $response);
+                            $res = $this->handleFoundUrl($url, $request_url, $response);
+                            if ($options['rewrite_urls']) {
+                                $link->setAttribute('src', $this->rewrite_url(...$res));
+                                // TODO: extract srcset attributes
+                                // Remove srcset Attributes while we don't extract links from them
+                                $link->removeAttribute('srcset');
+                            }
                         }
-                        // TODO: extract srcset attributes
                     }
+                    if ($options['rewrite_urls']) $response = $response->withBody(Psr7\stream_for($hp->save()));
                 }
             } else {
                 if ($options['look_in_css'] && $content_type == 'text/css') {
@@ -301,32 +316,53 @@ abstract class AbstractSpider
                             $this->logger->debug('Found CSS urls: ' . $i);
                         }
                         foreach ($matches[1] as $url) {
-                            $this->handleFoundUrl($url, $request_url, $response);
+                            $res = $this->handleFoundUrl($url, $request_url, $response);
+                            if ($options['rewrite_urls']) {
+                                $css = str_replace($url, $this->rewrite_url(...$res), $css);
+                            }
                         }
                     }
+                    if ($options['rewrite_urls']) $response = $response->withBody(Psr7\stream_for($css));
                 }
             }
         } else {
             if ($this->logger) {
-                $this->logger->debug('UrlFilterLinkextract: not looking for more links in ' . $request_url);
+                $this->logger->debug('UrlFilter Linkextract: not looking for more links in ' . $request_url);
             }
         }
+        return $response;
     }
 
     /**
-     * Do something with a URL found in a reponse content.
+     * @param bool $accepted
+     * @param string|UriInterface $url
+     * @return string|UriInterface
+     */
+    protected function rewrite_url(bool $accepted, $url)
+    {
+        if (!empty($this->url_rewriters)) {
+            foreach ($this->url_rewriters as $func) {
+                $url = \call_user_func($func, $accepted, $url);
+            }
+        }
+        return $url;
+    }
+
+    /**
+     * Do something with a URL found in a response content.
      * (In most cases, add it to the queue of the urls to fetch via $this->clientQueue->addUrl() if it matches some criteria)
      *
      * For URLs rejected by UrlFilterFetch the method handleRejectedUrl() will be called
      *
      * @param string $url
      * @param string $refering_url
-     * @param ResponseInterface $response Reponse where the url was found
-     * @return string The (possibly transformed) url
+     * @param ResponseInterface $response Response where the url was found
+     * @return array  [bool $accepted, string|UriInterface $url The url]
      */
     protected function handleFoundUrl($url, $refering_url, &$response, $linktext = '')
     {
         $url = trim($url);
+        $accepted = false;
         if ($url && $url != $refering_url) {
             $urlo = Psr7\UriNormalizer::normalize(Psr7\uri_for($url));
 
@@ -371,6 +407,7 @@ abstract class AbstractSpider
                     }
                     try {
                         $this->clientQueue->addUrl($urlo);
+                        $accepted = true;
                     } catch (\Exception $e) {
                         if ($this->logger) {
                             $this->logger->warning(sprintf('URL %s could not be added to spider.', $urlo));
@@ -379,10 +416,14 @@ abstract class AbstractSpider
                 } else {
                     $this->handleRejectedUrl($urlo, $refering_url, $response, $linktext);
                 }
+            } else {
+                // URLs pointing to the current document are not followed
+                // but must be set to accepted for replacement in webmirror mode
+                $accepted = true;
             }
-            return (string) $urlo;
+            return [$accepted, $url];
         }
-        return $url;
+        return [$accepted, $url];
     }
 
     /**
@@ -404,5 +445,17 @@ abstract class AbstractSpider
     public function addUrlNormalizer(callable $normalizer)
     {
         $this->url_normalizers[] = $normalizer;
+    }
+
+    /**
+     * Add a callable to rewrite urls when replacing them in the original document (used when mirroring websites).
+     * Must accept two parameters: bool $accepted, string|UriInterface $url
+     * Must return string|UriInterface
+     *
+     * @param callable $normalizer
+     */
+    public function addUrlRewriter(callable $rewriter)
+    {
+        $this->url_rewriters[] = $rewriter;
     }
 }
