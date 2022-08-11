@@ -316,6 +316,9 @@ abstract class AbstractSpider
                             $this->logger->debug('Found CSS urls: ' . $i);
                         }
                         foreach ($matches[1] as $url) {
+                            if (strpos($url, 'data:') === 0) {
+                                continue;
+                            }
                             $res = $this->handleFoundUrl($url, $request_url, $response);
                             if ($options['rewrite_urls']) {
                                 $css = str_replace($url, $this->rewrite_url(...$res), $css);
