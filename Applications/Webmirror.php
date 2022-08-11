@@ -17,6 +17,7 @@ class Webmirror extends AbstractSpider
     protected string $output_dir;
     protected string $link_prefix = '';
     protected array $additional_urls = [];
+    protected string $hostname;
 
     /**
      * Functions that are called before saving response body content
@@ -38,7 +39,8 @@ class Webmirror extends AbstractSpider
     {
         $url = Psr7\uri_for($start_url);
         // Webmirror: stay on one host
-        $this->getUrlfilterFetch()->addAllowedHost($url->getHost());
+        $this->hostname = $url->getHost();
+        $this->getUrlfilterFetch()->addAllowedHost($this->hostname);
         $this->clientQueue->addUrl($start_url);
         foreach ($this->additional_urls as $addurl) {
             $this->clientQueue->addUrl($addurl);
@@ -119,7 +121,30 @@ class Webmirror extends AbstractSpider
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);
         }
-        file_put_contents($path, ($response instanceof ResponseInterface ? $response->getBody() : $response));
+        $save = true;
+        $last_modified = $response->getHeader('last-modified');
+        if (!empty($last_modified)) {
+            $last_modified = (is_array($last_modified) ? $last_modified[0] : $last_modified);
+            $last_modified = new \DateTimeImmutable($last_modified);
+            $last_modified = $last_modified->getTimestamp();
+        }
+        if (file_exists($path)) {
+            $filemtime = filemtime($path);
+            if (!empty($last_modified)) {
+                if ($last_modified <= $filemtime) {
+                    $save = false;
+                }
+            }
+        }
+        if ($save) {
+            file_put_contents($path, ($response instanceof ResponseInterface ? $response->getBody() : $response));
+            if (!empty($last_modified)) {
+                touch($path, $last_modified);
+            }
+            if ($this->logger) $this->logger->info('File saved: ' . $path);
+        } else {
+            if ($this->logger) $this->logger->info('File already exists: ' . $path);
+        }
     }
 
     /**
