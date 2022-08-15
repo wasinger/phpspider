@@ -5,7 +5,9 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\Promise;
 use GuzzleHttp\Exception\RequestException;
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriNormalizer;
+use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerAwareInterface;
@@ -107,14 +109,14 @@ class HttpClientQueue
     public function addUrl($url, $force = false)
     {
         if (!$url instanceof UriInterface) {
-            $url = Psr7\uri_for($url);
+            $url = Utils::uriFor($url);
         }
 
-        if (!Psr7\Uri::isAbsolute($url)) {
+        if (!Uri::isAbsolute($url)) {
             throw new \InvalidArgumentException('Only absolute HTTP(S) urls are accepted by HttpClientQueue.');
         }
 
-        $url = Psr7\UriNormalizer::normalize($url);
+        $url = UriNormalizer::normalize($url);
 
         $url = (string) $url;
 

@@ -2,7 +2,7 @@
 namespace Wa72\Spider\Applications;
 
 use Psr\Http\Message\ResponseInterface;
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\UriInterface;
 use Wa72\Spider\Core\AbstractSpider;
 use Wa72\Spider\Core\HttpClientQueue;
@@ -37,7 +37,7 @@ class Webmirror extends AbstractSpider
 
     public function crawl($start_url)
     {
-        $url = Psr7\uri_for($start_url);
+        $url = Utils::uriFor($start_url);
         // Webmirror: stay on one host
         $this->hostname = $url->getHost();
         $this->getUrlfilterFetch()->addAllowedHost($this->hostname);
@@ -75,7 +75,7 @@ class Webmirror extends AbstractSpider
     public function rewrite_links($accepted, $url)
     {
         if (!$url instanceof UriInterface) {
-            $url = Psr7\uri_for($url);
+            $url = Utils::uriFor($url);
             if ($url->getScheme() == 'data' || $url->getScheme() == 'mailto' || $url->getScheme() == 'tel') {
                 return $url;
             }
@@ -116,7 +116,7 @@ class Webmirror extends AbstractSpider
      */
     protected function save($url, $response)
     {
-        $path = $this->prepare_fs_path(Psr7\uri_for($url)->getPath());
+        $path = $this->prepare_fs_path(Utils::uriFor($url)->getPath());
         $dir = dirname($path);
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);

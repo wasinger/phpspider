@@ -1,7 +1,7 @@
 <?php
 namespace Wa72\Spider\Core;
 
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\UriInterface;
 
 /**
@@ -75,7 +75,7 @@ class UrlFilter
     public function filter($url)
     {
         if (!($url instanceof UriInterface)) {
-            $url = Psr7\uri_for($url);
+            $url = Utils::uriFor($url);
         }
         return $this->filterScheme($url) && $this->filterHost($url) && $this->filterPath($url) && $this->filterQuery($url) && $this->filterByCustomFunction($url);
     }

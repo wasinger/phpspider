@@ -4,7 +4,7 @@
     "license":"MIT",
     "require": {
         "php":">=7.1.0",
-        "guzzlehttp/guzzle": "^6|^7",
+        "guzzlehttp/guzzle": "^7",
         "symfony/dom-crawler": "^3|^4",
         "symfony/css-selector": "^3|^4"
     },

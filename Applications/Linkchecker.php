@@ -6,7 +6,7 @@ use GuzzleHttp\Exception\ClientException;
 use Wa72\Spider\Core\AbstractSpider;
 use Wa72\Spider\Core\HttpClientExceptionEvent;
 use Wa72\Spider\Core\HttpClientResponseEvent;
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Utils;
 
 /**
  * Check a website for broken links
@@ -31,7 +31,7 @@ class Linkchecker extends AbstractSpider
 
     public function crawl($start_url)
     {
-        $url = Psr7\uri_for($start_url);
+        $url = Utils::uriFor($start_url);
         // Linkchecker: crawl for more links in responses only on own host
         $this->getUrlfilterLinkextract()->addAllowedHost($url->getHost());
         parent::crawl($start_url);

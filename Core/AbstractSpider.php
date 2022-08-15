@@ -1,12 +1,14 @@
 <?php
 namespace Wa72\Spider\Core;
 
-use Doctrine\Common\Reflection\Psr0FindFile;
 use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriNormalizer;
+use GuzzleHttp\Psr7\UriResolver;
+use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerAwareTrait;
-use GuzzleHttp\Psr7;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DomCrawler\Crawler;
 use Wa72\HtmlPageDom\HtmlPage;
@@ -222,9 +224,9 @@ abstract class AbstractSpider
         $response = $e->getResponse();
         
         // make redirect url absolute
-        $redirect_uri_object = Psr7\UriNormalizer::normalize(Psr7\uri_for($redirect_url));
-        if (!Psr7\Uri::isAbsolute($redirect_uri_object)) {
-            $redirect_uri_object = psr7\UriResolver::resolve(Psr7\uri_for($request_url), $redirect_uri_object);
+        $redirect_uri_object = UriNormalizer::normalize(Utils::uriFor($redirect_url));
+        if (!Uri::isAbsolute($redirect_uri_object)) {
+            $redirect_uri_object = UriResolver::resolve(Utils::uriFor($request_url), $redirect_uri_object);
             $redirect_url = (string) $redirect_uri_object;
         }
 
@@ -305,7 +307,7 @@ abstract class AbstractSpider
                             }
                         }
                     }
-                    if ($options['rewrite_urls']) $response = $response->withBody(Psr7\stream_for($hp->save()));
+                    if ($options['rewrite_urls']) $response = $response->withBody(Utils::streamFor($hp->save()));
                 }
             } else {
                 if ($options['look_in_css'] && $content_type == 'text/css') {
@@ -325,7 +327,7 @@ abstract class AbstractSpider
                             }
                         }
                     }
-                    if ($options['rewrite_urls']) $response = $response->withBody(Psr7\stream_for($css));
+                    if ($options['rewrite_urls']) $response = $response->withBody(Utils::streamFor($css));
                 }
             }
         } else {
@@ -367,17 +369,17 @@ abstract class AbstractSpider
         $url = trim($url);
         $accepted = false;
         if ($url && $url != $refering_url) {
-            $urlo = Psr7\UriNormalizer::normalize(Psr7\uri_for($url));
+            $urlo = UriNormalizer::normalize(Utils::uriFor($url));
 
             // ignore local part of url
             if ($urlo->getFragment() && $this->options['discard_fragment']) {
                 $urlo = $urlo->withFragment('');
             }
 
-            $referer_urlo = Psr7\UriNormalizer::normalize(Psr7\uri_for($refering_url));
+            $referer_urlo = UriNormalizer::normalize(Utils::uriFor($refering_url));
 
-            if (!Psr7\Uri::isAbsolute($urlo)) {
-                $urlo = psr7\UriResolver::resolve($referer_urlo, $urlo);
+            if (!Uri::isAbsolute($urlo)) {
+                $urlo = UriResolver::resolve($referer_urlo, $urlo);
             }
 
             // more normalizers
@@ -386,8 +388,8 @@ abstract class AbstractSpider
             }
 
             if (
-                !(Psr7\Uri::isSameDocumentReference($urlo, $referer_urlo))
-                && !(Psr7\UriNormalizer::isEquivalent($urlo, $referer_urlo))
+                !(Uri::isSameDocumentReference($urlo, $referer_urlo))
+                && !(UriNormalizer::isEquivalent($urlo, $referer_urlo))
             ) {
                 // remember refering url and linktext
                 if ($refering_url) {
