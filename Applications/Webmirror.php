@@ -50,6 +50,7 @@ class Webmirror extends AbstractSpider
         if (!file_exists($this->output_dir)) {
             mkdir($this->output_dir, 0777, true);
         }
+        file_put_contents($this->output_dir . '/.archive', date('Y-m-d H:i'));
 
         $this->clientQueue->start();
     }
