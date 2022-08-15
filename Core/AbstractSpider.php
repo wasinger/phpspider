@@ -55,8 +55,8 @@ abstract class AbstractSpider
 
     /**
      * Callables to rewrite urls when replacing them in the original document (used when mirroring websites).
-     * Must accept two parameters: bool $accepted, string|UriInterface $url
-     * Must return string|UriInterface
+     * Gets 3 parameters: bool $accepted, string $original_url, ?UriInterface $rewritten_url = null
+     * Must return UriInterface
      *
      * @var callable[]
      */
@@ -340,17 +340,17 @@ abstract class AbstractSpider
 
     /**
      * @param bool $accepted
-     * @param string|UriInterface $url
+     * @param string $original_url
      * @return string|UriInterface
      */
-    protected function rewrite_url(bool $accepted, $url)
+    protected function rewrite_url(bool $accepted, string $original_url, ?UriInterface $rewritten_url = null)
     {
         if (!empty($this->url_rewriters)) {
             foreach ($this->url_rewriters as $func) {
-                $url = \call_user_func($func, $accepted, $url);
+                $rewritten_url = \call_user_func($func, $accepted, $original_url, $rewritten_url);
             }
         }
-        return $url;
+        return $rewritten_url;
     }
 
     /**
@@ -426,7 +426,7 @@ abstract class AbstractSpider
                 // but must be set to accepted for replacement in webmirror mode
                 $accepted = true;
             }
-            return [$accepted, $url];
+            return [$accepted, $url, $urlo];
         }
         return [$accepted, $url];
     }
@@ -454,8 +454,8 @@ abstract class AbstractSpider
 
     /**
      * Add a callable to rewrite urls when replacing them in the original document (used when mirroring websites).
-     * Must accept two parameters: bool $accepted, string|UriInterface $url
-     * Must return string|UriInterface
+     * Gets 3 parameters: bool $accepted, string $original_url, ?UriInterface $rewritten_url = null
+     * Must return UriInterface
      *
      * @param callable $normalizer
      */
