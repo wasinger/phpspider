@@ -341,9 +341,10 @@ abstract class AbstractSpider
     /**
      * @param bool $accepted
      * @param string $original_url
-     * @return string|UriInterface
+     * @param UriInterface|null $rewritten_url
+     * @return UriInterface
      */
-    protected function rewrite_url(bool $accepted, string $original_url, ?UriInterface $rewritten_url = null)
+    protected function rewrite_url(bool $accepted, string $original_url, ?UriInterface $rewritten_url = null): UriInterface
     {
         if (!empty($this->url_rewriters)) {
             foreach ($this->url_rewriters as $func) {
@@ -368,13 +369,19 @@ abstract class AbstractSpider
     {
         $url = trim($url);
         $accepted = false;
+
+        if (
+            empty($url)
+            || str_starts_with($url, 'data:')
+            || str_starts_with($url, 'mailto:')
+            || str_starts_with($url, 'tel:')
+            || str_starts_with($url, '#')
+        ) {
+            return [$accepted, $url];
+        }
+
         if ($url && $url != $refering_url) {
             $urlo = UriNormalizer::normalize(Utils::uriFor($url));
-
-            // ignore local part of url
-            if ($urlo->getFragment() && $this->options['discard_fragment']) {
-                $urlo = $urlo->withFragment('');
-            }
 
             $referer_urlo = UriNormalizer::normalize(Utils::uriFor($refering_url));
 
@@ -385,6 +392,11 @@ abstract class AbstractSpider
             // more normalizers
             foreach ($this->url_normalizers as $normalizer) {
                 $urlo = \call_user_func($normalizer, $urlo);
+            }
+
+            // ignore local part of url
+            if ($urlo->getFragment() && $this->options['discard_fragment']) {
+                $urlo = $urlo->withFragment('');
             }
 
             if (

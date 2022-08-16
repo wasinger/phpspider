@@ -86,7 +86,7 @@ class Webmirror extends AbstractSpider
 
             # merge query hash into path
             if ($rewritten_url->getQuery()) {
-                $rewritten_url = $rewritten_url->withPath($this->compute_path_for_uri($rewritten_url));
+                $rewritten_url = $rewritten_url->withPath($this->compute_filename_for_uri($rewritten_url));
                 $rewritten_url = $rewritten_url->withQuery('');
             }
 
@@ -115,7 +115,7 @@ class Webmirror extends AbstractSpider
      * @param UriInterface $uri
      * @return string
      */
-    protected function compute_path_for_uri(UriInterface $uri)
+    protected function compute_filename_for_uri(UriInterface $uri): string
     {
         $query = $uri->getQuery();
         $path = $uri->getPath();
@@ -134,11 +134,11 @@ class Webmirror extends AbstractSpider
 
     /**
      * @param $url
-     * @param ResponseInterface|string $response
+     * @param ResponseInterface $response
      */
-    protected function save($url, $response)
+    protected function save($url, ResponseInterface $response)
     {
-        $path = $this->output_dir . $this->compute_path_for_uri(Utils::uriFor($url));
+        $path = $this->output_dir . $this->compute_filename_for_uri(Utils::uriFor($url));
         $dir = dirname($path);
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);
@@ -178,7 +178,7 @@ class Webmirror extends AbstractSpider
                 link($firstpath, $path);
                 $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
             } else {
-                file_put_contents($path, ($response instanceof ResponseInterface ? $response->getBody() : $response));
+                file_put_contents($path, $response->getBody());
                 if ($this->logger) $this->logger->info('File saved: ' . $path);
             }
             if (!empty($last_modified)) {
