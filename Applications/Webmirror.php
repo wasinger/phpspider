@@ -33,7 +33,7 @@ class Webmirror extends AbstractSpider
         parent::__construct($clientQueue);
         $this->output_dir = $output_dir;
         $this->path_prefix = $path_prefix;
-        $this->addUrlRewriter([$this, 'rewrite_links']);
+//        $this->addUrlRewriter([$this, 'rewrite_links']);
     }
 
     public function crawl($start_url)
@@ -63,7 +63,7 @@ class Webmirror extends AbstractSpider
             'extract_href' => true,
             'extract_src' => true,
             'look_in_css' => true,
-            'rewrite_urls' => true
+            'rewrite_urls' => false
         ]);
         if (!empty($this->body_save_listeners)) {
             foreach ($this->body_save_listeners as $callable) {
@@ -73,39 +73,39 @@ class Webmirror extends AbstractSpider
         $this->save($request_url, $response);
     }
 
-    public function rewrite_links($accepted, string $original_url, UriInterface $rewritten_url = null)
-    {
-        $url = Utils::uriFor($original_url);
-        if ($url->getScheme() == 'data' || $url->getScheme() == 'mailto' || $url->getScheme() == 'tel') {
-            return $url;
-        }
-        if ($accepted && $rewritten_url) {
-            if ($rewritten_url->getHost() == $this->hostname) {
-                $rewritten_url = $rewritten_url->withScheme('')->withHost('');
-            }
-
-            # merge query hash into path
-            if ($rewritten_url->getQuery()) {
-                $rewritten_url = $rewritten_url->withPath($this->compute_filename_for_uri($rewritten_url));
-                $rewritten_url = $rewritten_url->withQuery('');
-            }
-
-            # re-add fragment from original url
-            if ($url->getFragment()) {
-                $rewritten_url = $rewritten_url->withFragment($url->getFragment());
-            }
-
-            //            if (substr($url, 0, 1) === '/') {
-//                $url = $this->link_prefix . $url;
+//    public function rewrite_links($accepted, string $original_url, UriInterface $rewritten_url = null)
+//    {
+//        $url = Utils::uriFor($original_url);
+//        if ($url->getScheme() == 'data' || $url->getScheme() == 'mailto' || $url->getScheme() == 'tel') {
+//            return $url;
+//        }
+//        if ($accepted && $rewritten_url) {
+//            if ($rewritten_url->getHost() == $this->hostname) {
+//                $rewritten_url = $rewritten_url->withScheme('')->withHost('');
 //            }
-            if ($this->path_prefix) {
-                $rewritten_url = $rewritten_url->withPath($this->path_prefix . $rewritten_url->getPath());
-            }
-
-            $url = $rewritten_url;
-        }
-        return $url;
-    }
+//
+//            # merge query hash into path
+//            if ($rewritten_url->getQuery()) {
+//                $rewritten_url = $rewritten_url->withPath($this->compute_filename_for_uri($rewritten_url));
+//                $rewritten_url = $rewritten_url->withQuery('');
+//            }
+//
+//            # re-add fragment from original url
+//            if ($url->getFragment()) {
+//                $rewritten_url = $rewritten_url->withFragment($url->getFragment());
+//            }
+//
+//            //            if (substr($url, 0, 1) === '/') {
+////                $url = $this->link_prefix . $url;
+////            }
+//            if ($this->path_prefix) {
+//                $rewritten_url = $rewritten_url->withPath($this->path_prefix . $rewritten_url->getPath());
+//            }
+//
+//            $url = $rewritten_url;
+//        }
+//        return $url;
+//    }
 
     /**
      * Compute a file path for saving.
@@ -126,8 +126,8 @@ class Webmirror extends AbstractSpider
             $path = $path . '/index.html';
         }
         if ($query) {
-            $extension = pathinfo($path, PATHINFO_EXTENSION);
-            $path = $path . '.' . md5($query) . '.' . $extension;
+//            $extension = pathinfo($path, PATHINFO_EXTENSION);
+            $path = $path . '?' . $query;
         }
         return $path;
     }
