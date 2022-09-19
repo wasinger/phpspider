@@ -23,7 +23,8 @@ class Webmirror extends AbstractSpider
     protected array $additional_urls = [];
     protected string $hostname;
     protected array $hashes;
-    protected array $filename_aliases;
+    protected array $redirect_paths;
+    protected array $files_seen;
 
     /**
      * Functions that are called before saving response body content
@@ -36,7 +37,7 @@ class Webmirror extends AbstractSpider
     public function __construct(string $output_dir, HttpClientQueue $clientQueue, string $path_prefix = '')
     {
         parent::__construct($clientQueue);
-        $this->output_dir = $output_dir;
+        $this->output_dir = realpath($output_dir);
         $this->path_prefix = $path_prefix;
 //        $this->addUrlRewriter([$this, 'rewrite_links']);
     }
@@ -58,6 +59,24 @@ class Webmirror extends AbstractSpider
         file_put_contents($this->output_dir . '/.archive', date('Y-m-d H:i'));
 
         $this->clientQueue->start();
+
+        // remove files not existing anymore
+        $ff = function() {
+            $rii = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->output_dir));
+            foreach ($rii as $file) {
+                /** @var \SplFileInfo $file */
+                if ($file->isDir() || substr($file->getFilename(), 0, 1) === '.') {
+                    continue;
+                }
+                yield $file->getPathname();
+            }
+        };
+        foreach ($ff() as $file) {
+            if (!in_array($file, $this->files_seen)) {
+                unlink($file);
+                $this->logger->info(sprintf('file %s does not exist anymore, deleted.', $file));
+            }
+        }
     }
 
     public function handleResponseEvent(HttpClientResponseEvent $event)
@@ -84,7 +103,6 @@ class Webmirror extends AbstractSpider
         // remember redirects for saving
         $request_url = $e->getRequestUrl();
         $redirect_url = $e->getRedirectUrl();
-        $response = $e->getResponse();
 
         $request_uri_object = UriNormalizer::normalize(Utils::uriFor($request_url));
         $redirect_uri_object = UriNormalizer::normalize(Utils::uriFor($redirect_url));
@@ -97,14 +115,10 @@ class Webmirror extends AbstractSpider
             $file2 = $this->compute_filename_for_uri($redirect_uri_object);
             if ($file1 != $file2) {
                 $aliases = [$file1];
-                if (!empty($this->filename_aliases[$file1])) {
-                    $aliases = array_merge($aliases, $this->filename_aliases[$file1]);
-                    unset($this->filename_aliases[$file1]);
+                if (!empty($this->redirect_paths[$file2])) {
+                    $aliases = array_merge($aliases, $this->redirect_paths[$file2]);
                 }
-                if (!empty($this->filename_aliases[$file2])) {
-                    $aliases = array_merge($aliases, $this->filename_aliases[$file2]);
-                }
-                $this->filename_aliases[$file2] = $aliases;
+                $this->redirect_paths[$file2] = $aliases;
             }
         }
 
@@ -226,17 +240,20 @@ class Webmirror extends AbstractSpider
             if ($this->logger) $this->logger->info('File already exists: ' . $path);
         }
 
+        $this->files_seen[] = $path;
+
         // check for aliases (links)
-        if (!empty($this->filename_aliases[$filename])) {
-            foreach ($this->filename_aliases[$filename] as $alias) {
+        if (!empty($this->redirect_paths[$filename])) {
+            foreach ($this->redirect_paths[$filename] as $alias) {
                 $aliaspath = $this->output_dir . $alias;
+                $this->files_seen[] = $aliaspath;
                 if (!file_exists($aliaspath)) {
                     $aliasdir = dirname($aliaspath);
                     if (!file_exists($aliasdir)) {
                         mkdir($aliasdir, 0777, true);
                     }
-                    link($path, $aliaspath);
-                    $this->logger->info(sprintf('%s created as link to %s because of redirect', $aliaspath, $path));
+                    symlink($path, $aliaspath);
+                    $this->logger->info(sprintf('%s created as symlink to %s because of redirect', $aliaspath, $path));
                 }
             }
         }
