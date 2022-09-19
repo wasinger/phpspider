@@ -1,11 +1,15 @@
 <?php
 namespace Wa72\Spider\Applications;
 
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriNormalizer;
+use GuzzleHttp\Psr7\UriResolver;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\UriInterface;
 use Wa72\Spider\Core\AbstractSpider;
 use Wa72\Spider\Core\HttpClientQueue;
+use Wa72\Spider\Core\HttpClientRedirectEvent;
 use Wa72\Spider\Core\HttpClientResponseEvent;
 
 /**
@@ -19,6 +23,7 @@ class Webmirror extends AbstractSpider
     protected array $additional_urls = [];
     protected string $hostname;
     protected array $hashes;
+    protected array $filename_aliases;
 
     /**
      * Functions that are called before saving response body content
@@ -71,6 +76,38 @@ class Webmirror extends AbstractSpider
             }
         }
         $this->save($request_url, $response);
+    }
+
+    public function handleRedirectEvent(HttpClientRedirectEvent $e) {
+        parent::handleRedirectEvent($e);
+
+        // remember redirects for saving
+        $request_url = $e->getRequestUrl();
+        $redirect_url = $e->getRedirectUrl();
+        $response = $e->getResponse();
+
+        $request_uri_object = UriNormalizer::normalize(Utils::uriFor($request_url));
+        $redirect_uri_object = UriNormalizer::normalize(Utils::uriFor($redirect_url));
+
+        if (!Uri::isAbsolute($redirect_uri_object)) {
+            $redirect_uri_object = UriResolver::resolve($request_uri_object, $redirect_uri_object);
+        }
+        if ($redirect_uri_object->getHost() == $this->hostname) {
+            $file1 = $this->compute_filename_for_uri($request_uri_object);
+            $file2 = $this->compute_filename_for_uri($redirect_uri_object);
+            if ($file1 != $file2) {
+                $aliases = [$file1];
+                if (!empty($this->filename_aliases[$file1])) {
+                    $aliases = array_merge($aliases, $this->filename_aliases[$file1]);
+                    unset($this->filename_aliases[$file1]);
+                }
+                if (!empty($this->filename_aliases[$file2])) {
+                    $aliases = array_merge($aliases, $this->filename_aliases[$file2]);
+                }
+                $this->filename_aliases[$file2] = $aliases;
+            }
+        }
+
     }
 
 //    public function rewrite_links($accepted, string $original_url, UriInterface $rewritten_url = null)
@@ -138,7 +175,8 @@ class Webmirror extends AbstractSpider
      */
     protected function save($url, ResponseInterface $response)
     {
-        $path = $this->output_dir . $this->compute_filename_for_uri(Utils::uriFor($url));
+        $filename = $this->compute_filename_for_uri(Utils::uriFor($url));
+        $path = $this->output_dir . $filename;
         $dir = dirname($path);
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);
@@ -186,6 +224,21 @@ class Webmirror extends AbstractSpider
             }
         } else {
             if ($this->logger) $this->logger->info('File already exists: ' . $path);
+        }
+
+        // check for aliases (links)
+        if (!empty($this->filename_aliases[$filename])) {
+            foreach ($this->filename_aliases[$filename] as $alias) {
+                $aliaspath = $this->output_dir . $alias;
+                if (!file_exists($aliaspath)) {
+                    $aliasdir = dirname($aliaspath);
+                    if (!file_exists($aliasdir)) {
+                        mkdir($aliasdir, 0777, true);
+                    }
+                    link($path, $aliaspath);
+                    $this->logger->info(sprintf('%s created as link to %s because of redirect', $aliaspath, $path));
+                }
+            }
         }
     }
 
