@@ -11,6 +11,7 @@ use Wa72\Spider\Core\AbstractSpider;
 use Wa72\Spider\Core\HttpClientQueue;
 use Wa72\Spider\Core\HttpClientRedirectEvent;
 use Wa72\Spider\Core\HttpClientResponseEvent;
+use Wikimedia\RelPath;
 
 /**
  * Mirror a web site to a specified directory
@@ -103,6 +104,7 @@ class Webmirror extends AbstractSpider
         // remember redirects for saving
         $request_url = $e->getRequestUrl();
         $redirect_url = $e->getRedirectUrl();
+        $response = $e->getResponse();
 
         $request_uri_object = UriNormalizer::normalize(Utils::uriFor($request_url));
         $redirect_uri_object = UriNormalizer::normalize(Utils::uriFor($redirect_url));
@@ -111,17 +113,20 @@ class Webmirror extends AbstractSpider
             $redirect_uri_object = UriResolver::resolve($request_uri_object, $redirect_uri_object);
         }
         if ($redirect_uri_object->getHost() == $this->hostname) {
-            $file1 = $this->compute_filename_for_uri($request_uri_object);
-            $file2 = $this->compute_filename_for_uri($redirect_uri_object);
-            if ($file1 != $file2) {
-                $aliases = [$file1];
-                if (!empty($this->redirect_paths[$file2])) {
-                    $aliases = array_merge($aliases, $this->redirect_paths[$file2]);
+            if ($request_uri_object->getPath() . '/' == $redirect_uri_object->getPath()) {
+                // ignore directory redirects from /dir to /dir/
+                return;
+            }
+            $path1 = $request_uri_object->getPath();
+            $path2 = $redirect_uri_object->getPath();
+            if ($path1 != $path2) {
+                $aliases = [$path1];
+                if (!empty($this->redirect_paths[$path2])) {
+                    $aliases = array_merge($aliases, $this->redirect_paths[$path2]);
                 }
-                $this->redirect_paths[$file2] = $aliases;
+                $this->redirect_paths[$path2] = $aliases;
             }
         }
-
     }
 
 //    public function rewrite_links($accepted, string $original_url, UriInterface $rewritten_url = null)
@@ -166,14 +171,19 @@ class Webmirror extends AbstractSpider
      * @param UriInterface $uri
      * @return string
      */
-    protected function compute_filename_for_uri(UriInterface $uri): string
+    protected function compute_filename_for_uri(UriInterface $uri, ResponseInterface $response): string
     {
         $query = $uri->getQuery();
         $path = $uri->getPath();
         $filename = basename($path);
+        $content_type = $response->getHeaderLine('content-type');
+        if (($pos = strpos($content_type, ';')) > 0) {
+            // remove charset from content type
+            $content_type = substr($content_type, 0, $pos);
+        }
         if (substr($path, -1) == '/') {
             $path .= 'index.html';
-        } else if (strpos($filename, '.') === false) {
+        } else if (strpos($filename, '.') === false && $content_type == 'text/html') {
             $path = $path . '/index.html';
         }
         if ($query) {
@@ -189,8 +199,10 @@ class Webmirror extends AbstractSpider
      */
     protected function save($url, ResponseInterface $response)
     {
-        $filename = $this->compute_filename_for_uri(Utils::uriFor($url));
+        $urlo = Utils::uriFor($url);
+        $filename = $this->compute_filename_for_uri($urlo, $response);
         $path = $this->output_dir . $filename;
+        $this->files_seen[] = $path;
         $dir = dirname($path);
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);
@@ -240,20 +252,42 @@ class Webmirror extends AbstractSpider
             if ($this->logger) $this->logger->info('File already exists: ' . $path);
         }
 
-        $this->files_seen[] = $path;
-
         // check for aliases (links)
-        if (!empty($this->redirect_paths[$filename])) {
-            foreach ($this->redirect_paths[$filename] as $alias) {
+        if (!empty($this->redirect_paths[$urlo->getPath()])) {
+            foreach ($this->redirect_paths[$urlo->getPath()] as $alias) {
                 $aliaspath = $this->output_dir . $alias;
                 $this->files_seen[] = $aliaspath;
+                if (file_exists($aliaspath) && !is_link($aliaspath)) {
+                    if (is_dir($aliaspath)) {
+                        // delete dir recursively
+                        $rrmdir = function($src) use ( &$rrmdir ) {
+                            $dir = opendir($src);
+                            while (false !== ($file = readdir($dir))) {
+                                if (($file != '.') && ($file != '..')) {
+                                    $full = $src . '/' . $file;
+                                    if (is_dir($full)) {
+                                        $rrmdir($full);
+                                    } else {
+                                        unlink($full);
+                                    }
+                                }
+                            }
+                            closedir($dir);
+                            rmdir($src);
+                        };
+                        $rrmdir($aliaspath);
+                    } else {
+                        unlink($aliaspath);
+                    }
+                }
                 if (!file_exists($aliaspath)) {
                     $aliasdir = dirname($aliaspath);
                     if (!file_exists($aliasdir)) {
                         mkdir($aliasdir, 0777, true);
                     }
-                    symlink($path, $aliaspath);
-                    $this->logger->info(sprintf('%s created as symlink to %s because of redirect', $aliaspath, $path));
+                    $relpath = RelPath::getRelativePath($path, $aliasdir);
+                    symlink($relpath, $aliaspath);
+                    $this->logger->info(sprintf('%s created as symlink to %s because of redirect', $aliaspath, $relpath));
                 }
             }
         }
