@@ -280,12 +280,18 @@ class Webmirror extends AbstractSpider
                         unlink($aliaspath);
                     }
                 }
-                if (!file_exists($aliaspath)) {
-                    $aliasdir = dirname($aliaspath);
-                    if (!file_exists($aliasdir)) {
-                        mkdir($aliasdir, 0777, true);
+                $aliasdir = dirname($aliaspath);
+                if (!file_exists($aliasdir)) {
+                    mkdir($aliasdir, 0777, true);
+                }
+                $relpath = RelPath::getRelativePath($path, $aliasdir);
+                if (file_exists($aliaspath) && is_link($aliaspath)) {
+                    $target = readlink($aliaspath);
+                    if ($target != $relpath) {
+                       unlink($aliaspath);
                     }
-                    $relpath = RelPath::getRelativePath($path, $aliasdir);
+                }
+                if (!file_exists($aliaspath)) {
                     symlink($relpath, $aliaspath);
                     $this->logger->info(sprintf('%s created as symlink to %s because of redirect', $aliaspath, $relpath));
                 }
