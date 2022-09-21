@@ -222,6 +222,7 @@ class Webmirror extends AbstractSpider
             $last_modified = $last_modified->getTimestamp();
         }
         if (file_exists($path)) {
+            $path = realpath($path);
             $filemtime = filemtime($path);
             if (!empty($last_modified)) {
                 if ($last_modified <= $filemtime) {
@@ -239,16 +240,17 @@ class Webmirror extends AbstractSpider
             $firstpath = $this->hashes[$md5_response][0];
             if (count($this->hashes[$md5_response]) > 1 && file_exists($firstpath)) {
                 link($firstpath, $path);
-                $this->logger->info(sprintf('%s created as link to %s because of identical content', realpath($path), $firstpath));
+                $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
             } else {
                 file_put_contents($path, $response->getBody());
-                if ($this->logger) $this->logger->info('File saved: ' . realpath($path));
+                $path = realpath($path);
+                if ($this->logger) $this->logger->info('File saved: ' . $path);
             }
             if (!empty($last_modified)) {
                 touch($path, $last_modified);
             }
         } else {
-            if ($this->logger) $this->logger->info('File already exists: ' . realpath($path));
+            if ($this->logger) $this->logger->info('File already exists: ' . $path);
         }
 
         $this->files_seen[] = realpath($path);
@@ -256,9 +258,13 @@ class Webmirror extends AbstractSpider
         // check for aliases (links)
         if (!empty($this->redirect_paths[$urlo->getPath()])) {
             foreach ($this->redirect_paths[$urlo->getPath()] as $alias) {
+                $this->logger->debug(sprintf('alias-symlink: Alias %s found for %s', $alias, $path));
                 $aliaspath = $this->output_dir . $alias;
+                $this->logger->debug(sprintf('alias-symlink: Full aliaspath is %s', $aliaspath));
                 if (file_exists($aliaspath) && !is_link($aliaspath)) {
+                    $this->logger->debug(sprintf('alias-symlink: Aliaspath %s already exists but is not a symlink', $aliaspath));
                     if (is_dir($aliaspath)) {
+                        $this->logger->debug(sprintf('alias-symlink: Aliaspath %s is a directory, will be deleted', $aliaspath));
                         // delete dir recursively
                         $rrmdir = function($src) use ( &$rrmdir ) {
                             $dir = opendir($src);
@@ -277,6 +283,7 @@ class Webmirror extends AbstractSpider
                         };
                         $rrmdir($aliaspath);
                     } else {
+                        $this->logger->debug(sprintf('alias-symlink: Aliaspath %s is a file, will be deleted', $aliaspath));
                         unlink($aliaspath);
                     }
                 }
@@ -285,17 +292,21 @@ class Webmirror extends AbstractSpider
                     mkdir($aliasdir, 0777, true);
                 }
                 $relpath = RelPath::getRelativePath($path, $aliasdir);
+                $this->logger->debug(sprintf('alias-symlink: Relative path for Aliaspath %s to %s is %s', $aliaspath, $path, $relpath));
                 if (file_exists($aliaspath) && is_link($aliaspath)) {
                     $target = readlink($aliaspath);
                     if ($target != $relpath) {
+                        $this->logger->debug(sprintf('alias-symlink: Aliaspath %s is a symlink with wrong content %s, will be deleted', $aliaspath, $target));
                        unlink($aliaspath);
+                    } else {
+                        $this->logger->info(sprintf('alias-symlink: %s already exists as a symlink to %s', $aliaspath, $target));
                     }
                 }
                 if (!file_exists($aliaspath)) {
                     symlink($relpath, $aliaspath);
-                    $this->logger->info(sprintf('%s created as symlink to %s because of redirect', realpath($aliaspath), $relpath));
+                    $this->logger->info(sprintf('alias-symlink: %s created as symlink to %s because of redirect', $aliaspath, $relpath));
                 }
-                $this->files_seen[] = realpath($aliaspath);
+                $this->files_seen[] = $aliaspath;
             }
         }
     }
