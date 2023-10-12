@@ -203,7 +203,7 @@ class HttpClientQueue
 
         $check_promises_state = function () use (&$promises, &$request_counter) {
             foreach ($promises as $key => $promise) {
-                if (Promise\is_settled($promise)) {
+                if (Promise\Is::settled($promise)) {
                     unset($promises[$key]);
                     $request_counter--;
                 }
