@@ -307,26 +307,34 @@ abstract class AbstractSpider
                             }
                         }
                     }
+
+                    if ($options['look_in_css']) {
+                        // look for urls in style attributes
+                        $elements_with_style = $hp->filter('[style]');
+                        foreach ($elements_with_style as $e) {
+                            /** @var \DOMElement $e */
+                            $css = $e->getAttribute('style');
+                            $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
+                            if ($options['rewrite_urls']) $e->setAttribute('style', $css);
+                        }
+
+                        // look for urls in style tags
+                        $styles = $hp->filter('style');
+                        foreach ($styles as $e) {
+                            /** @var \DOMElement $e */
+                            $css = $e->textContent;
+                            $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
+                            if ($options['rewrite_urls']) $e->textContent = $css;
+                        }
+                    }
+
                     if ($options['rewrite_urls']) $response = $response->withBody(Utils::streamFor($hp->save()));
                 }
             } else {
                 if ($options['look_in_css'] && $content_type == 'text/css') {
                     // Extrahiere URLs aus CSS
                     $css = $response->getBody()->getContents();
-                    if ($i = preg_match_all('/url\(["\']?([^)]+)["\']?\)/', $css, $matches)) {
-                        if ($this->logger) {
-                            $this->logger->debug('Found CSS urls: ' . $i);
-                        }
-                        foreach ($matches[1] as $url) {
-                            if (strpos($url, 'data:') === 0) {
-                                continue;
-                            }
-                            $res = $this->handleFoundUrl($url, $request_url, $response);
-                            if ($options['rewrite_urls']) {
-                                $css = str_replace($url, $this->rewrite_url(...$res), $css);
-                            }
-                        }
-                    }
+                    $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
                     if ($options['rewrite_urls']) $response = $response->withBody(Utils::streamFor($css));
                 }
             }
@@ -336,6 +344,25 @@ abstract class AbstractSpider
             }
         }
         return $response;
+    }
+
+    protected function extract_url_from_css(string $css, string $request_url, $rewrite = false)
+    {
+        if ($i = preg_match_all('/url\(["\']?([^)]+)["\']?\)/', $css, $matches)) {
+            if ($this->logger) {
+                $this->logger->debug('Found CSS urls in ' . $request_url . ': ' . $i);
+            }
+            foreach ($matches[1] as $url) {
+                if (strpos($url, 'data:') === 0) {
+                    continue;
+                }
+                $res = $this->handleFoundUrl($url, $request_url, $response);
+                if ($rewrite) {
+                    $css = str_replace($url, $this->rewrite_url(...$res), $css);
+                }
+            }
+        }
+        return $css;
     }
 
     /**
