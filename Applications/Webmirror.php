@@ -239,8 +239,15 @@ class Webmirror extends AbstractSpider
         if ($save) {
             $firstpath = $this->hashes[$md5_response][0];
             if (count($this->hashes[$md5_response]) > 1 && file_exists($firstpath)) {
-                link($firstpath, $path);
-                $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
+                if (file_exists($path)) {
+                    unlink($path);
+                }
+                $link_success = link($firstpath, $path);
+                if (!$link_success) {
+                    $this->logger->warning(sprintf('%s could not be linked to %s', $path, $firstpath));
+                } else {
+                    $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
+                }
             } else {
                 file_put_contents($path, $response->getBody());
                 $path = realpath($path);
