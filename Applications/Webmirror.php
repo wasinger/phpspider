@@ -226,8 +226,8 @@ class Webmirror extends AbstractSpider
         if (file_exists($path)) {
             $path = realpath($path);
             $filemtime = filemtime($path);
-            $filesize = filesize($path);
-            if (!empty($last_modified) && $bodysize == $filesize) {
+            $bytes_written = filesize($path);
+            if (!empty($last_modified) && $bodysize == $bytes_written) {
                 if ($last_modified <= $filemtime) {
                     $save = false;
                     $this->logger->debug(sprintf('%s not saved because filesize matches and last_modified is older than filemtime', $path));
@@ -253,17 +253,19 @@ class Webmirror extends AbstractSpider
                     $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
                 }
             } else {
-                file_put_contents($path, $bodycontent);
+                $bytes_written = file_put_contents($path, $bodycontent);
                 $path = realpath($path);
                 $md5_written = md5_file($path);
-                $filesize = filesize($path);
-                if ($filesize == 0) {
+                if ($bytes_written === false) {
+                    $this->logger->error(sprintf('%s could not be saved', $path));
+                }
+                if ($bytes_written === 0) {
                     $this->logger->warning(sprintf('%s saved with 0 bytes', $path));
                 }
-                if ($filesize != $bodysize || $md5_written != $md5_response) {
-                    $this->logger->warning(sprintf('%s saved with %d bytes and checksum %s, but expected %d bytes and checksum %s', $path, $filesize, $md5_written, $bodysize, $md5_response));
+                if ($md5_written != $md5_response) {
+                    $this->logger->warning(sprintf('%s saved with %d bytes and checksum %s, but expected %d bytes and checksum %s', $path, $bytes_written, $md5_written, $bodysize, $md5_response));
                 } else {
-                    $this->logger->info(sprintf('%s saved with %d bytes', $path, $filesize));
+                    $this->logger->info(sprintf('%s saved with %d bytes', $path, $bytes_written));
                 }
             }
             if (!empty($last_modified)) {
