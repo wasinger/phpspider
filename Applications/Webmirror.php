@@ -208,7 +208,9 @@ class Webmirror extends AbstractSpider
         }
         $save = true;
         $last_modified = $response->getHeader('last-modified');
-        $md5_response = md5((string) $response->getBody());
+        $bodycontent = (string) $response->getBody();
+        $md5_response = md5($bodycontent);
+        $bodysize = strlen($bodycontent);
         if (empty($this->hashes[$md5_response])) {
             $this->hashes[$md5_response] = [];
         }
@@ -224,9 +226,11 @@ class Webmirror extends AbstractSpider
         if (file_exists($path)) {
             $path = realpath($path);
             $filemtime = filemtime($path);
-            if (!empty($last_modified)) {
+            $filesize = filesize($path);
+            if (!empty($last_modified) && $bodysize == $filesize) {
                 if ($last_modified <= $filemtime) {
                     $save = false;
+                    $this->logger->debug(sprintf('%s not saved because filesize matches and last_modified is older than filemtime', $path));
                 }
             } else {
                 $md5_existing = md5_file($path);
@@ -238,7 +242,7 @@ class Webmirror extends AbstractSpider
         }
         if ($save) {
             $firstpath = $this->hashes[$md5_response][0];
-            if (count($this->hashes[$md5_response]) > 1 && file_exists($firstpath)) {
+            if ($firstpath != $path && count($this->hashes[$md5_response]) > 1 && file_exists($firstpath)) {
                 if (file_exists($path)) {
                     unlink($path);
                 }
@@ -249,15 +253,24 @@ class Webmirror extends AbstractSpider
                     $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
                 }
             } else {
-                file_put_contents($path, $response->getBody());
+                file_put_contents($path, $bodycontent);
                 $path = realpath($path);
-                if ($this->logger) $this->logger->info('File saved: ' . $path);
+                $md5_written = md5_file($path);
+                $filesize = filesize($path);
+                if ($filesize == 0) {
+                    $this->logger->warning(sprintf('%s saved with 0 bytes', $path));
+                }
+                if ($filesize != $bodysize || $md5_written != $md5_response) {
+                    $this->logger->warning(sprintf('%s saved with %d bytes and checksum %s, but expected %d bytes and checksum %s', $path, $filesize, $md5_written, $bodysize, $md5_response));
+                } else {
+                    $this->logger->info(sprintf('%s saved with %d bytes', $path, $filesize));
+                }
             }
             if (!empty($last_modified)) {
                 touch($path, $last_modified);
             }
         } else {
-            if ($this->logger) $this->logger->info('File already exists: ' . $path);
+            if ($this->logger) $this->logger->info('File not changed: ' . $path);
         }
 
         $this->files_seen[] = realpath($path);
