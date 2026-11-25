@@ -348,18 +348,26 @@ abstract class AbstractSpider
 
     protected function extract_url_from_css(string $css, string $request_url, $rewrite = false)
     {
-        if ($i = preg_match_all('/url\(["\']?([^)]+)["\']?\)/', $css, $matches)) {
+        $css = preg_replace_callback('/url\((\s*)(?:(["\'])((?:\\\\.|.)*?)\2|([^)]*?))(\s*)\)/is', function ($matches) use ($request_url, $rewrite) {
+            $quote = $matches[2];
+            $url = $quote !== '' ? $matches[3] : trim($matches[4]);
+
+            if ($url === '' || stripos($url, 'data:') === 0) {
+                return $matches[0];
+            }
+
+            $res = $this->handleFoundUrl($url, $request_url, $response);
+            if (!$rewrite) {
+                return $matches[0];
+            }
+
+            $rewritten_url = (string) $this->rewrite_url(...$res);
+            return substr($matches[0], 0, 4) . $matches[1] . $quote . $rewritten_url . $quote . $matches[5] . ')';
+        }, $css, -1, $i);
+
+        if ($i) {
             if ($this->logger) {
                 $this->logger->debug('Found CSS urls in ' . $request_url . ': ' . $i);
-            }
-            foreach ($matches[1] as $url) {
-                if (strpos($url, 'data:') === 0) {
-                    continue;
-                }
-                $res = $this->handleFoundUrl($url, $request_url, $response);
-                if ($rewrite) {
-                    $css = str_replace($url, $this->rewrite_url(...$res), $css);
-                }
             }
         }
         return $css;
