@@ -3,8 +3,12 @@ namespace Wa72\Spider\Core;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\CurlMultiHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Promise;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriNormalizer;
 use GuzzleHttp\Psr7\Utils;
@@ -79,12 +83,47 @@ class HttpClientQueue
             'concurrent_requests' => 1,
             'method' => 'GET',
             'timeout' => 0,
+            'retries' => 0,
             'headers' => [
                'User-Agent' => 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:70.0) Gecko/20100101 Firefox/70.0',
                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             ],
             'allow_redirects' => false // must always be "false" in order to dispatch HttpClientRedirectEvent!
         ], $options);
+
+        $retries = max(0, (int) $this->options['retries']);
+        if ($retries > 0) {
+            $handlerStack = $this->client->getConfig('handler');
+            if (!$handlerStack instanceof HandlerStack) {
+                throw new \InvalidArgumentException('Retries require a Guzzle HandlerStack.');
+            }
+            $handlerStack->remove('webmirror_retry');
+            $handlerStack->push(Middleware::retry(
+                function ($retryCount, $request, $response, $exception) use ($retries) {
+                    $status = $response ? $response->getStatusCode() : null;
+                    if ($exception instanceof RequestException && $exception->hasResponse()) {
+                        $status = $exception->getResponse()->getStatusCode();
+                    }
+                    $retryable = $exception instanceof ConnectException
+                        || in_array($status, [429], true)
+                        || ($status !== null && $status >= 500 && $status <= 599);
+                    $shouldRetry = $retryCount < $retries && $retryable;
+                    if ($shouldRetry && $this->logger) {
+                        $this->logger->warning(sprintf(
+                            'Retrying request to %s (attempt %d of %d)%s',
+                            $request->getUri(),
+                            $retryCount + 1,
+                            $retries,
+                            $status === null ? '' : ' after HTTP ' . $status
+                        ));
+                    }
+                    return $shouldRetry;
+                },
+                static function ($retryCount) {
+                    return (int) (100 * (2 ** $retryCount));
+                }
+            ), 'webmirror_retry');
+        }
     }
 
     public function setLogger(LoggerInterface $logger)
@@ -262,10 +301,13 @@ class HttpClientQueue
                         );
                     }
                 },
-                function (RequestException $e) use ($url) {
-                    $this->dispatchExceptionEvent(
-                        new HttpClientExceptionEvent($url, $e)
-                    );
+                function ($reason) use ($url) {
+                    if ($reason instanceof TransferException) {
+                        $this->dispatchExceptionEvent(new HttpClientExceptionEvent($url, $reason));
+                    } elseif ($this->logger) {
+                        $message = $reason instanceof \Throwable ? $reason->getMessage() : (string) $reason;
+                        $this->logger->error(sprintf('Unexpected request failure on URL %s: %s', $url, $message));
+                    }
                 }
             );
             $promises[] = $promise;
@@ -294,7 +336,7 @@ class HttpClientQueue
                         new HttpClientResponseEvent($url, $response)
                     );
                 }
-            } catch (RequestException  $e) {
+            } catch (TransferException $e) {
                 $this->dispatchExceptionEvent(
                     new HttpClientExceptionEvent($url, $e)
                 );

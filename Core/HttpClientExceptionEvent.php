@@ -2,6 +2,7 @@
 namespace Wa72\Spider\Core;
 
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\TransferException;
 use Psr\Http\Message\ResponseInterface;
 
 class HttpClientExceptionEvent
@@ -11,19 +12,19 @@ class HttpClientExceptionEvent
      */
     private $request_url;
     /**
-     * @var RequestException
+     * @var TransferException
      */
     private $exception;
     /**
-     * @var ResponseInterface
+     * @var ResponseInterface|null
      */
     private $response;
 
-    public function __construct($request_url, RequestException $exception)
+    public function __construct($request_url, TransferException $exception)
     {
         $this->request_url = $request_url;
         $this->exception = $exception;
-        if ($exception->hasResponse()) {
+        if ($exception instanceof RequestException && $exception->hasResponse()) {
             $this->response = $exception->getResponse();
         }
     }
@@ -37,17 +38,17 @@ class HttpClientExceptionEvent
     }
 
     /**
-     * @return ResponseInterface
+     * @return ResponseInterface|null
      */
-    public function getResponse()
+    public function getResponse(): ?ResponseInterface
     {
         return $this->response;
     }
 
     /**
-     * @return RequestException
+     * @return TransferException
      */
-    public function getException()
+    public function getException(): TransferException
     {
         return $this->exception;
     }

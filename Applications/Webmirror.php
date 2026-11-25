@@ -7,6 +7,7 @@ use GuzzleHttp\Psr7\UriResolver;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\UriInterface;
+use Psr\Log\NullLogger;
 use Wa72\Spider\Core\AbstractSpider;
 use Wa72\Spider\Core\HttpClientQueue;
 use Wa72\Spider\Core\HttpClientRedirectEvent;
@@ -23,9 +24,12 @@ class Webmirror extends AbstractSpider
     protected string $path_prefix = '';
     protected array $additional_urls = [];
     protected string $hostname;
-    protected array $hashes;
-    protected array $redirect_paths;
-    protected array $files_seen;
+    protected array $hashes = [];
+    protected array $redirect_paths = [];
+    protected array $files_seen = [];
+    protected array $start_page_urls = [];
+    protected bool $start_page_ok = false;
+    protected float $cleanup_min_ratio;
 
     /**
      * Functions that are called before saving response body content
@@ -40,12 +44,19 @@ class Webmirror extends AbstractSpider
         parent::__construct($clientQueue);
         $this->output_dir = realpath($output_dir);
         $this->path_prefix = $path_prefix;
+        $this->cleanup_min_ratio = 0.8;
+        $this->setLogger(new NullLogger());
 //        $this->addUrlRewriter([$this, 'rewrite_links']);
     }
 
-    public function crawl($start_url)
+    public function crawl($start_url): bool
     {
         $url = Utils::uriFor($start_url);
+        $this->hashes = [];
+        $this->redirect_paths = [];
+        $this->files_seen = [];
+        $this->start_page_urls = [(string) UriNormalizer::normalize($url) => true];
+        $this->start_page_ok = false;
         // Webmirror: stay on one host
         $this->hostname = $url->getHost();
         $this->getUrlfilterFetch()->addAllowedHost($this->hostname);
@@ -61,29 +72,59 @@ class Webmirror extends AbstractSpider
 
         $this->clientQueue->start();
 
+        if (!$this->start_page_ok) {
+            $this->logger->error('Start page did not return a successful response; skipping mirror cleanup.');
+            return false;
+        }
+
         // remove files not existing anymore
-        $ff = function() {
-            $rii = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->output_dir));
-            foreach ($rii as $file) {
-                /** @var \SplFileInfo $file */
-                if ($file->isDir() || substr($file->getFilename(), 0, 1) === '.') {
-                    continue;
-                }
-                yield $file->getPathname();
+        $files = [];
+        $rii = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->output_dir, \FilesystemIterator::SKIP_DOTS));
+        foreach ($rii as $file) {
+            /** @var \SplFileInfo $file */
+            if ($file->isDir() || substr($file->getFilename(), 0, 1) === '.') {
+                continue;
             }
-        };
-        foreach ($ff() as $file) {
-            if (!in_array($file, $this->files_seen)) {
+            $files[$file->getPathname()] = true;
+        }
+        $total_files = count($files);
+        $seen_files = count(array_intersect_key($files, $this->files_seen));
+        $seen_ratio = $total_files === 0 ? 1 : $seen_files / $total_files;
+        if ($seen_ratio < $this->cleanup_min_ratio) {
+            $this->logger->error(sprintf(
+                'Only %.1f%% of existing files were seen (minimum %.1f%%); skipping mirror cleanup.',
+                $seen_ratio * 100,
+                $this->cleanup_min_ratio * 100
+            ));
+            return false;
+        }
+
+        foreach ($files as $file => $_) {
+            if (!isset($this->files_seen[$file])) {
                 unlink($file);
                 $this->logger->info(sprintf('file %s does not exist anymore, deleted.', $file));
             }
         }
+        return true;
+    }
+
+    public function setCleanupMinRatio(float $ratio): self
+    {
+        if ($ratio < 0 || $ratio > 1) {
+            throw new \InvalidArgumentException('Cleanup minimum ratio must be between 0 and 1.');
+        }
+        $this->cleanup_min_ratio = $ratio;
+        return $this;
     }
 
     public function handleResponseEvent(HttpClientResponseEvent $event)
     {
         $response = $event->getResponse();
         $request_url = $event->getRequestUrl();
+        $normalized_url = (string) UriNormalizer::normalize(Utils::uriFor($request_url));
+        if (isset($this->start_page_urls[$normalized_url]) && $response->getStatusCode() >= 200 && $response->getStatusCode() < 300) {
+            $this->start_page_ok = true;
+        }
         $response = $this->workOnResponse($request_url, $event->getContentType(), $response, [
             'extract_href' => true,
             'extract_src' => true,
@@ -111,6 +152,10 @@ class Webmirror extends AbstractSpider
 
         if (!Uri::isAbsolute($redirect_uri_object)) {
             $redirect_uri_object = UriResolver::resolve($request_uri_object, $redirect_uri_object);
+        }
+        $request_key = (string) $request_uri_object;
+        if (isset($this->start_page_urls[$request_key])) {
+            $this->start_page_urls[(string) $redirect_uri_object] = true;
         }
         if ($redirect_uri_object->getHost() == $this->hostname) {
             if ($request_uri_object->getPath() . '/' == $redirect_uri_object->getPath()) {
@@ -206,6 +251,7 @@ class Webmirror extends AbstractSpider
         if (!file_exists($dir)) {
             mkdir($dir, 0777, true);
         }
+        $path_is_symlink = is_link($path);
         $save = true;
         $last_modified = $response->getHeader('last-modified');
         $bodycontent = (string) $response->getBody();
@@ -223,8 +269,7 @@ class Webmirror extends AbstractSpider
             $last_modified = new \DateTimeImmutable($last_modified);
             $last_modified = $last_modified->getTimestamp();
         }
-        if (file_exists($path)) {
-            $path = realpath($path);
+        if (file_exists($path) && !$path_is_symlink) {
             $filemtime = filemtime($path);
             $bytes_written = filesize($path);
             if (!empty($last_modified) && $bodysize == $bytes_written) {
@@ -242,40 +287,50 @@ class Webmirror extends AbstractSpider
         }
         if ($save) {
             $firstpath = $this->hashes[$md5_response][0];
-            if ($firstpath != $path && count($this->hashes[$md5_response]) > 1 && file_exists($firstpath)) {
-                if (file_exists($path)) {
-                    unlink($path);
-                }
-                $link_success = link($firstpath, $path);
-                if (!$link_success) {
-                    $this->logger->warning(sprintf('%s could not be linked to %s', $path, $firstpath));
-                } else {
-                    $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
-                }
+            $temporary_path = tempnam($dir, '.' . basename($path) . '.tmp-');
+            if ($temporary_path === false) {
+                $this->logger->error(sprintf('%s could not be saved: unable to create temporary file', $path));
             } else {
-                $bytes_written = file_put_contents($path, $bodycontent);
-                $path = realpath($path);
-                $md5_written = md5_file($path);
-                if ($bytes_written === false) {
-                    $this->logger->error(sprintf('%s could not be saved', $path));
+                $link_candidate = $firstpath != $path && count($this->hashes[$md5_response]) > 1 && file_exists($firstpath);
+                if ($link_candidate) {
+                    unlink($temporary_path);
+                    $link_candidate = link($firstpath, $temporary_path);
                 }
-                if ($bytes_written === 0) {
-                    $this->logger->warning(sprintf('%s saved with 0 bytes', $path));
-                }
-                if ($md5_written != $md5_response) {
-                    $this->logger->warning(sprintf('%s saved with %d bytes and checksum %s, but expected %d bytes and checksum %s', $path, $bytes_written, $md5_written, $bodysize, $md5_response));
+                if ($link_candidate) {
+                    if (!rename($temporary_path, $path)) {
+                        unlink($temporary_path);
+                        $this->logger->warning(sprintf('%s could not be atomically replaced by a hard link to %s', $path, $firstpath));
+                    } else {
+                        $this->logger->info(sprintf('%s created as link to %s because of identical content', $path, $firstpath));
+                    }
                 } else {
-                    $this->logger->info(sprintf('%s saved with %d bytes', $path, $bytes_written));
+                    $bytes_written = file_put_contents($temporary_path, $bodycontent);
+                    if ($bytes_written === false) {
+                        unlink($temporary_path);
+                        $this->logger->error(sprintf('%s could not be saved', $path));
+                    } else {
+                        if (!empty($last_modified)) {
+                            touch($temporary_path, $last_modified);
+                        }
+                        $md5_written = md5_file($temporary_path);
+                        if (!rename($temporary_path, $path)) {
+                            unlink($temporary_path);
+                            $this->logger->error(sprintf('%s could not be atomically replaced', $path));
+                        } elseif ($bytes_written === 0) {
+                            $this->logger->warning(sprintf('%s saved with 0 bytes', $path));
+                        } elseif ($md5_written != $md5_response) {
+                            $this->logger->warning(sprintf('%s saved with %d bytes and checksum %s, but expected %d bytes and checksum %s', $path, $bytes_written, $md5_written, $bodysize, $md5_response));
+                        } else {
+                            $this->logger->info(sprintf('%s saved with %d bytes', $path, $bytes_written));
+                        }
+                    }
                 }
-            }
-            if (!empty($last_modified)) {
-                touch($path, $last_modified);
             }
         } else {
             if ($this->logger) $this->logger->info('File not changed: ' . $path);
         }
 
-        $this->files_seen[] = realpath($path);
+        $this->files_seen[$path] = true;
 
         // check for aliases (links)
         if (!empty($this->redirect_paths[$urlo->getPath()])) {
@@ -328,7 +383,7 @@ class Webmirror extends AbstractSpider
                     symlink($relpath, $aliaspath);
                     $this->logger->info(sprintf('alias-symlink: %s created as symlink to %s because of redirect', $aliaspath, $relpath));
                 }
-                $this->files_seen[] = $aliaspath;
+                $this->files_seen[$aliaspath] = true;
             }
         }
     }
