@@ -301,9 +301,19 @@ abstract class AbstractSpider
                             $res = $this->handleFoundUrl($url, $request_url, $response);
                             if ($options['rewrite_urls']) {
                                 $link->setAttribute('src', $this->rewrite_url(...$res));
-                                // TODO: extract srcset attributes
-                                // Remove srcset Attributes while we don't extract links from them
-                                $link->removeAttribute('srcset');
+                            }
+                        }
+
+                        $links = $hp->filter('[srcset], [imagesrcset]');
+                        foreach ($links as $link) {
+                            /** @var \DOMElement $link */
+                            foreach (['srcset', 'imagesrcset'] as $attribute) {
+                                if ($link->hasAttribute($attribute)) {
+                                    $srcset = $this->rewrite_srcset($link->getAttribute($attribute), $request_url, $options['rewrite_urls'], $response);
+                                    if ($options['rewrite_urls']) {
+                                        $link->setAttribute($attribute, $srcset);
+                                    }
+                                }
                             }
                         }
                     }
@@ -344,6 +354,81 @@ abstract class AbstractSpider
             }
         }
         return $response;
+    }
+
+    protected function parse_srcset(string $srcset): array
+    {
+        $candidates = [];
+        $length = strlen($srcset);
+        $position = 0;
+
+        while ($position < $length) {
+            while ($position < $length && (str_contains(" \t\n\f\r", $srcset[$position]) || $srcset[$position] === ',')) {
+                $position++;
+            }
+            if ($position >= $length) {
+                break;
+            }
+
+            $url_start = $position;
+            while ($position < $length && !str_contains(" \t\n\f\r", $srcset[$position])) {
+                $position++;
+            }
+            $url = substr($srcset, $url_start, $position - $url_start);
+            $trimmed_url = rtrim($url, ',');
+            if ($trimmed_url !== $url) {
+                if ($trimmed_url !== '') {
+                    $candidates[] = ['url' => $trimmed_url, 'descriptor' => ''];
+                }
+                continue;
+            }
+
+            while ($position < $length && str_contains(" \t\n\f\r", $srcset[$position])) {
+                $position++;
+            }
+            $descriptor_start = $position;
+            $parentheses = 0;
+            while ($position < $length) {
+                $character = $srcset[$position];
+                if ($character === '(') {
+                    $parentheses++;
+                } elseif ($character === ')' && $parentheses > 0) {
+                    $parentheses--;
+                } elseif ($character === ',' && $parentheses === 0) {
+                    break;
+                }
+                $position++;
+            }
+            $descriptor = trim(substr($srcset, $descriptor_start, $position - $descriptor_start));
+            $candidates[] = ['url' => $url, 'descriptor' => $descriptor];
+
+            if ($position < $length && $srcset[$position] === ',') {
+                $position++;
+            }
+        }
+
+        return $candidates;
+    }
+
+    protected function rewrite_srcset(string $srcset, string $request_url, bool $rewrite, ResponseInterface &$response): string
+    {
+        $candidates = $this->parse_srcset($srcset);
+        $rewritten_candidates = [];
+
+        foreach ($candidates as $candidate) {
+            $url = $candidate['url'];
+            $res = $this->handleFoundUrl($url, $request_url, $response);
+            if ($rewrite && isset($res[2]) && $res[2] instanceof UriInterface) {
+                $rewritten_url = $this->rewrite_url(...$res);
+                if ($rewritten_url instanceof UriInterface) {
+                    $url = (string) $rewritten_url;
+                }
+            }
+
+            $rewritten_candidates[] = $url . ($candidate['descriptor'] !== '' ? ' ' . $candidate['descriptor'] : '');
+        }
+
+        return $rewrite ? implode(', ', $rewritten_candidates) : $srcset;
     }
 
     protected function extract_url_from_css(string $css, string $request_url, $rewrite = false)

@@ -297,6 +297,7 @@ class Webmirror extends AbstractSpider
                     $link_candidate = link($firstpath, $temporary_path);
                 }
                 if ($link_candidate) {
+                    $this->makeWorldReadable($temporary_path);
                     if (!rename($temporary_path, $path)) {
                         unlink($temporary_path);
                         $this->logger->warning(sprintf('%s could not be atomically replaced by a hard link to %s', $path, $firstpath));
@@ -313,6 +314,7 @@ class Webmirror extends AbstractSpider
                             touch($temporary_path, $last_modified);
                         }
                         $md5_written = md5_file($temporary_path);
+                        $this->makeWorldReadable($temporary_path);
                         if (!rename($temporary_path, $path)) {
                             unlink($temporary_path);
                             $this->logger->error(sprintf('%s could not be atomically replaced', $path));
@@ -327,6 +329,7 @@ class Webmirror extends AbstractSpider
                 }
             }
         } else {
+            $this->makeWorldReadable($path);
             if ($this->logger) $this->logger->info('File not changed: ' . $path);
         }
 
@@ -385,6 +388,20 @@ class Webmirror extends AbstractSpider
                 }
                 $this->files_seen[$aliaspath] = true;
             }
+        }
+    }
+
+    protected function makeWorldReadable(string $path): void
+    {
+        if (is_link($path)) {
+            return;
+        }
+
+        $permissions = fileperms($path);
+        if ($permissions === false) {
+            $this->logger->warning(sprintf('%s could not be made world readable: unable to read file permissions', $path));
+        } elseif (($permissions & 0004) === 0 && !chmod($path, $permissions | 0444)) {
+            $this->logger->warning(sprintf('%s could not be made world readable', $path));
         }
     }
 
