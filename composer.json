@@ -11,10 +11,21 @@
         "wa72/htmlpagedom": "^2|^3",
         "wikimedia/relpath": "^3|^4"
     },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6 || ^10.5 || ^11.5"
+    },
     "autoload":{
         "psr-4":{
             "Wa72\\Spider\\":"./"
         }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Wa72\\Spider\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "authors": [
         {

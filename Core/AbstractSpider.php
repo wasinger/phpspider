@@ -324,7 +324,7 @@ abstract class AbstractSpider
                         foreach ($elements_with_style as $e) {
                             /** @var \DOMElement $e */
                             $css = $e->getAttribute('style');
-                            $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
+                            $css = $this->extract_url_from_css($css, $request_url, $response, $options['rewrite_urls']);
                             if ($options['rewrite_urls']) $e->setAttribute('style', $css);
                         }
 
@@ -333,7 +333,7 @@ abstract class AbstractSpider
                         foreach ($styles as $e) {
                             /** @var \DOMElement $e */
                             $css = $e->textContent;
-                            $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
+                            $css = $this->extract_url_from_css($css, $request_url, $response, $options['rewrite_urls']);
                             if ($options['rewrite_urls']) $e->textContent = $css;
                         }
                     }
@@ -344,7 +344,7 @@ abstract class AbstractSpider
                 if ($options['look_in_css'] && $content_type == 'text/css') {
                     // Extrahiere URLs aus CSS
                     $css = $response->getBody()->getContents();
-                    $css = $this->extract_url_from_css($css, $request_url, $options['rewrite_urls']);
+                    $css = $this->extract_url_from_css($css, $request_url, $response, $options['rewrite_urls']);
                     if ($options['rewrite_urls']) $response = $response->withBody(Utils::streamFor($css));
                 }
             }
@@ -431,9 +431,9 @@ abstract class AbstractSpider
         return $rewrite ? implode(', ', $rewritten_candidates) : $srcset;
     }
 
-    protected function extract_url_from_css(string $css, string $request_url, $rewrite = false)
+    protected function extract_url_from_css(string $css, string $request_url, ResponseInterface &$response, $rewrite = false)
     {
-        $css = preg_replace_callback('/url\((\s*)(?:(["\'])((?:\\\\.|.)*?)\2|([^)]*?))(\s*)\)/is', function ($matches) use ($request_url, $rewrite) {
+        $css = preg_replace_callback('/url\((\s*)(?:(["\'])((?:\\\\.|.)*?)\2|([^)]*?))(\s*)\)/is', function ($matches) use ($request_url, $rewrite, &$response) {
             $quote = $matches[2];
             $url = $quote !== '' ? $matches[3] : trim($matches[4]);
 
